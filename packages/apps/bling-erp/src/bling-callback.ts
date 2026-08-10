@@ -3,10 +3,11 @@ import type { Applications } from '@cloudcommerce/types';
 import api from '@cloudcommerce/api';
 import config, { logger } from '@cloudcommerce/firebase/lib/config';
 import checkEnableApi from './bling-auth/check-enable-api';
-import isCallbackAuthorized from './bling-auth/is-callback-authorized';
 import importProduct from './integration/import-product-from-bling';
 import importOrder from './integration/import-order-from-bling';
 import afterQueue from './integration/after-bling-queue';
+
+let hasWarnedNoToken = false;
 
 const getRetorno = (body: any) => {
   if (typeof body !== 'object' || !body) return null;
@@ -41,13 +42,15 @@ export default async (req: Request, res: Response) => {
   };
 
   const callbackToken = process.env.BLINGERP_CALLBACK_TOKEN || appData.callback_token;
-  if (!isCallbackAuthorized(callbackToken, req.query.token)) {
-    if (!callbackToken) {
-      logger.error('Bling callback rejected: set `BLINGERP_CALLBACK_TOKEN`'
-        + ' or `callback_token` and append `?token=` to the callback URL on Bling');
+  if (callbackToken) {
+    if (req.query.token !== callbackToken) {
+      res.sendStatus(401);
+      return;
     }
-    res.sendStatus(401);
-    return;
+  } else if (!hasWarnedNoToken) {
+    hasWarnedNoToken = true;
+    logger.warn('Bling callback accepted without token validation,'
+      + ' set `BLINGERP_CALLBACK_TOKEN` and append `?token=` to the callback URL on Bling');
   }
   if (!(await checkEnableApi())) {
     logger.warn('> Error in request to Bling API');
