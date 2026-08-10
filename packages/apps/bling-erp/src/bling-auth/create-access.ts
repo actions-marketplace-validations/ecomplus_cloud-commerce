@@ -85,7 +85,9 @@ const createAccess = async (
       // token com sucesso enquanto o nosso `refresh_token` já era o antigo. O
       // Bling rotaciona o refresh_token a cada uso, então o perdedor da corrida
       // recebe invalid_grant — nesse caso reusamos o token novo, sem bloquear.
-      const freshDoc = (await docRef.get()).data();
+      const freshDoc = await docRef.get()
+        .then((snap) => snap.data())
+        .catch(() => undefined);
       const decision = decideRefreshFailure({
         isInvalidGrant,
         initialUpdatedAtMs: updatedAt?.toMillis() || 0,
