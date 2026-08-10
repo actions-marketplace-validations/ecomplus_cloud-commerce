@@ -4,6 +4,7 @@ import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
 import parseOrder from './parsers/order-from-bling';
 import parseStatusFromBling from './parsers/status-from-bling';
+import shouldAdvanceFulfillment from './helpers/guard-fulfillment-transition';
 
 const getLastStatus = (records: Array<Record<string, any>> | undefined) => {
   let statusRecord: Record<string, any> | undefined;
@@ -70,12 +71,18 @@ const importOrderFromBling = async (
     [fulfillmentStatus, 'fulfillments'],
   ] as Array<[string | undefined, 'payments_history' | 'fulfillments']>)
     .forEach(([newStatus, subresource]) => {
-      if (newStatus && getLastStatus(order[subresource]) !== newStatus) {
-        promises.push(api.post(`orders/${order._id}/${subresource}`, {
-          ...statusBody,
-          status: newStatus,
-        } as any));
+      const currentStatus = getLastStatus(order[subresource]);
+      if (!newStatus || currentStatus === newStatus) return;
+      if (subresource === 'fulfillments' && !shouldAdvanceFulfillment(currentStatus, newStatus)) {
+        // Conta Bling padrão colapsa "enviado"/"entregue" em "Atendido", que
+        // volta como invoice_issued; não deixamos o pedido regredir de estado.
+        logger.info(`Skipping fulfillment regression ${currentStatus} -> ${newStatus}`);
+        return;
       }
+      promises.push(api.post(`orders/${order._id}/${subresource}`, {
+        ...statusBody,
+        status: newStatus,
+      } as any));
     });
 
   const [firstResult] = await Promise.all(promises);
