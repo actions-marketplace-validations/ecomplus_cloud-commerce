@@ -5,11 +5,12 @@ import api from '@cloudcommerce/api';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
 import parseProduct from './parsers/product-to-bling';
+import resolveBlingStockBalance from './helpers/resolve-bling-stock-balance';
 
-const getBlingStockId = (bling: any, blingProductId: string | number) => {
+const getBlingStockBalances = (bling: any, blingProductId: string | number) => {
   const params = new URLSearchParams({ 'idsProdutos[]': String(blingProductId) });
   return bling.get(`/estoques/saldos?${params.toString()}`)
-    .then(({ data }) => data?.data?.[0]?.depositos?.[0]?.id)
+    .then(({ data }) => data?.data?.[0] as Record<string, any> | undefined)
     .catch((err: any) => {
       logger.warn(`Failed listing Bling stock balances: ${err.message}`);
       return undefined;
@@ -175,7 +176,8 @@ const exportProductToBling = async (
     }
   }
 
-  const estoqueId = blingDeposit || await getBlingStockId(bling, blingProductId);
+  const stockBalances = await getBlingStockBalances(bling, blingProductId);
+  const estoqueId = blingDeposit || stockBalances?.depositos?.[0]?.id;
   if (!estoqueId) {
     return response;
   }
@@ -185,7 +187,11 @@ const exportProductToBling = async (
   const stockRequests: Array<Promise<any>> = [];
   if (!isVariations) {
     const productQuantity = product.quantity || 0;
-    if (isUpdateStock && originalBlingProduct?.estoque?.saldoVirtualTotal !== productQuantity) {
+    // Compara contra o saldo FÍSICO do depósito usado (mesma base que a
+    // importação grava), não o saldoVirtualTotal (virtual, todos os depósitos),
+    // senão movimenta a cada exportação ou deixa de corrigir o físico.
+    const blingBalance = resolveBlingStockBalance(stockBalances?.depositos, estoqueId);
+    if (isUpdateStock && blingBalance !== productQuantity) {
       stockRequests.push(bling.post('/estoques', {
         produto: { id: Number(blingProductId) },
         deposito: { id: Number(estoqueId) },
