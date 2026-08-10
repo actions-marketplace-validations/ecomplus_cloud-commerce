@@ -1,8 +1,9 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import createAxios from './create-axios';
 import blingAuth from './create-auth';
 import getTokensDocRef from './tokens-doc';
+import decideRefreshFailure from './decide-refresh-failure';
 
 /*
 Returns an Axios instance authenticated with a valid Bling access token,
@@ -80,22 +81,35 @@ const createAccess = async (
         response: err.response?.data,
         status: err.response?.status,
       })}`);
-      if (isInvalidGrant) {
+      // Relê o doc: um refresh concorrente (cron/callback) pode ter renovado o
+      // token com sucesso enquanto o nosso `refresh_token` já era o antigo. O
+      // Bling rotaciona o refresh_token a cada uso, então o perdedor da corrida
+      // recebe invalid_grant — nesse caso reusamos o token novo, sem bloquear.
+      const freshDoc = (await docRef.get()).data();
+      const decision = decideRefreshFailure({
+        isInvalidGrant,
+        initialUpdatedAtMs: updatedAt?.toMillis() || 0,
+        nowMs: now.toMillis(),
+        tokenExpirationGap,
+        current: {
+          updatedAtMs: freshDoc?.updatedAt?.toMillis() || 0,
+          accessToken: freshDoc?.access_token,
+          expiredAtMs: freshDoc?.expiredAt?.toMillis(),
+          isBloqued: freshDoc?.isBloqued,
+          countErr: freshDoc?.countErr,
+        },
+      });
+      if (decision.action === 'reuse') {
+        logger.warn('Bling token was refreshed concurrently, reusing the fresh access token');
+        return createAxios(decision.accessToken);
+      }
+      if (decision.action === 'block') {
         await docRef.set({
           isBloqued: true,
           updatedAt: now,
         }, { merge: true }).catch(logger.error);
       } else {
-        const doc = await docRef.get();
-        const countErr = (doc.data()?.countErr || 0) + 1;
-        if (countErr > 3) {
-          await docRef.set({
-            isBloqued: true,
-            updatedAt: now,
-          }, { merge: true }).catch(logger.error);
-        } else {
-          await docRef.set({ countErr }, { merge: true }).catch(logger.error);
-        }
+        await docRef.set({ countErr: FieldValue.increment(1) }, { merge: true }).catch(logger.error);
       }
       throw err;
     }
