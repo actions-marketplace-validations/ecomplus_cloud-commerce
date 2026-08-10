@@ -73,6 +73,10 @@ export default (order: Orders, appData: Record<string, any>): string[] => {
       return findStatusConfig(fulfillmentStatus, appData) || ['enviado', 'atendido'];
     case 'delivered':
       return findStatusConfig(fulfillmentStatus, appData) || ['entregue', 'atendido'];
+    case 'returned':
+      // Pedido devolvido cancela no Bling (mesmo padrão do tiny-erp), senão fica
+      // como venda válida: estoque não retorna e a NF não é cancelada.
+      return findStatusConfig(fulfillmentStatus, appData) || ['cancelado'];
     default:
   }
   if (financialStatus === 'paid') {
