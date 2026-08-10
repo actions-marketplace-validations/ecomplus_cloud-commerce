@@ -6,6 +6,7 @@ import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
 import parseProduct from './parsers/product-from-bling';
 import importCategory from './import-category-from-bling';
+import parseStockFromDeposits from './helpers/parse-stock-from-deposits';
 
 const findProductBySku = async (sku: string) => {
   try {
@@ -16,30 +17,6 @@ const findProductBySku = async (sku: string) => {
     }
     throw err;
   }
-};
-
-const parseStockFromDeposits = (
-  blingItem: Record<string, any>,
-  blingDeposit: string | number | undefined,
-  hasStockReserve: boolean,
-) => {
-  const depositFind = blingItem.depositos.find(({ id }: Record<string, any>) => {
-    return String(id) === String(blingDeposit);
-  });
-  const deposits = depositFind ? [depositFind] : blingItem.depositos;
-  let quantity = 0;
-  deposits.forEach((deposit: Record<string, any>) => {
-    if (hasStockReserve) {
-      const saldoVirtual = Number(deposit.saldoVirtual);
-      quantity += !Number.isNaN(saldoVirtual) ? saldoVirtual : 0;
-    } else {
-      const saldo = typeof deposit.saldo === 'number'
-        ? Number(deposit.saldo)
-        : Number(deposit.saldoFisico);
-      quantity += !Number.isNaN(saldo) ? saldo : 0;
-    }
-  });
-  return quantity;
 };
 
 const createUpdateProduct = async (
