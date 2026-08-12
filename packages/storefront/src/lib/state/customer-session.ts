@@ -25,6 +25,47 @@ const session = useStorage<{
   },
 }>(storageKey, emptySession);
 
+/*
+ * Profiles identified by e-mail and document only (without verified login) used to be
+ * returned with censored fields: '***' surname, '000XX' phone, address holding just zip
+ * and province. Sessions persisted back then are still cached on customer browsers and
+ * get submitted on checkout, where they overwrite the saved profile and produce an
+ * incomplete shipping address that payment gateways reject.
+ */
+const CENSORED = '***';
+type CustomerAddress = NonNullable<Customers['addresses']>[number];
+const isCensoredPhone = (number?: string) => !!number && /^0{3}\d{2}$/.test(number);
+const isCensoredAddress = ({ name, line_address: lineAddress }: CustomerAddress) => {
+  return name === CENSORED || !!lineAddress?.includes(CENSORED);
+};
+const hasCensoredFields = ({ name, phones, addresses }: Partial<Customers>) => {
+  if (name?.family_name === CENSORED) return true;
+  if (phones?.some(({ number }) => isCensoredPhone(number))) return true;
+  return !!addresses?.some(isCensoredAddress);
+};
+const withoutCensoredFields = (customerData: Partial<Customers>) => {
+  const {
+    name,
+    phones,
+    addresses,
+    ...safeCustomer
+  } = customerData;
+  const cleanCustomer: Partial<Customers> = safeCustomer;
+  if (name && name.family_name !== CENSORED) cleanCustomer.name = name;
+  const cleanPhones = phones?.filter(({ number }) => !isCensoredPhone(number));
+  if (cleanPhones?.length) cleanCustomer.phones = cleanPhones;
+  const cleanAddresses = addresses?.filter((address) => !isCensoredAddress(address));
+  if (cleanAddresses?.length) cleanCustomer.addresses = cleanAddresses;
+  return cleanCustomer;
+};
+if (hasCensoredFields(session.customer)) {
+  // Drop the cached profile entirely to force `fetchCustomer` once authenticated again.
+  session.customer = {
+    display_name: session.customer.display_name || '',
+    main_email: session.customer.main_email || '',
+  };
+}
+
 const isAuthenticated = computed(() => {
   const { auth } = session;
   return auth && new Date(auth.expires).getTime() - Date.now() > 1000 * 10;
@@ -85,8 +126,9 @@ const fetchCustomer = async () => {
   const { data } = await api.get(`customers/${auth.customer_id}`, {
     accessToken,
   });
-  session.customer = data;
-  return data;
+  // Profiles already persisted with censored fields must not be reused as valid values.
+  session.customer = withoutCensoredFields(data);
+  return session.customer;
 };
 
 const isAuthReady = ref(false);
