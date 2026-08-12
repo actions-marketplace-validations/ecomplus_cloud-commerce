@@ -59,11 +59,13 @@ const withoutCensoredFields = (customerData: Partial<Customers>) => {
   return cleanCustomer;
 };
 if (hasCensoredFields(session.customer)) {
-  // Drop the cached profile entirely to force `fetchCustomer` once authenticated again.
-  session.customer = {
-    display_name: session.customer.display_name || '',
-    main_email: session.customer.main_email || '',
-  };
+  // Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer`
+  // runs again once the customer is authenticated.
+  const cleanCustomer = withoutCensoredFields(session.customer);
+  delete cleanCustomer.doc_number;
+  cleanCustomer.display_name = cleanCustomer.display_name || '';
+  cleanCustomer.main_email = cleanCustomer.main_email || '';
+  session.customer = cleanCustomer;
 }
 
 const isAuthenticated = computed(() => {
