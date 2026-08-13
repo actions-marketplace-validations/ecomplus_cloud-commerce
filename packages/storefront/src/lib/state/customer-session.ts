@@ -34,31 +34,29 @@ const session = useStorage<{
  */
 const CENSORED = '***';
 type CustomerAddress = NonNullable<Customers['addresses']>[number];
-const isCensoredPhone = (number?: string) => !!number && /^0{3}\d{2}$/.test(number);
+// Predicates must match server side checks on `@cloudcommerce/modules` checkout.ts
+const isCensoredPhone = (number?: string) => !!number && /^0{3,}\d{1,4}$/.test(number);
 const isCensoredAddress = ({ name, line_address: lineAddress }: CustomerAddress) => {
-  return name === CENSORED || !!lineAddress?.includes(CENSORED);
+  return !!name?.includes(CENSORED) || !!lineAddress?.includes(CENSORED);
 };
 const hasCensoredFields = ({ name, phones, addresses }: Partial<Customers>) => {
-  if (name?.family_name === CENSORED) return true;
+  if (name?.family_name?.includes(CENSORED)) return true;
   if (phones?.some(({ number }) => isCensoredPhone(number))) return true;
   return !!addresses?.some(isCensoredAddress);
 };
 const withoutCensoredFields = (customerData: Partial<Customers>) => {
-  const {
-    name,
-    phones,
-    addresses,
-    ...safeCustomer
-  } = customerData;
+  const { phones, addresses, ...safeCustomer } = customerData;
   const cleanCustomer: Partial<Customers> = safeCustomer;
-  if (name && name.family_name !== CENSORED) cleanCustomer.name = name;
+  /* `name` is intentionally kept even when `family_name` is censored: it's required
+  on `@checkout` contract, `given_name` is preserved valid by the mask, and the
+  '***' marker triggers server side restore from the saved profile (checkout.ts). */
   const cleanPhones = phones?.filter(({ number }) => !isCensoredPhone(number));
   if (cleanPhones?.length) cleanCustomer.phones = cleanPhones;
   const cleanAddresses = addresses?.filter((address) => !isCensoredAddress(address));
   if (cleanAddresses?.length) cleanCustomer.addresses = cleanAddresses;
   return cleanCustomer;
 };
-if (hasCensoredFields(session.customer)) {
+if (!import.meta.env.SSR && hasCensoredFields(session.customer)) {
   // Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer`
   // runs again once the customer is authenticated.
   const cleanCustomer = withoutCensoredFields(session.customer);
@@ -128,7 +126,8 @@ const fetchCustomer = async () => {
   const { data } = await api.get(`customers/${auth.customer_id}`, {
     accessToken,
   });
-  // Profiles already persisted with censored fields must not be reused as valid values.
+  /* Saved profiles may still hold censored fields persisted by old checkouts,
+  they must not be cached back as valid values. */
   session.customer = withoutCensoredFields(data);
   return session.customer;
 };
@@ -163,12 +162,17 @@ const initializeFirebaseAuth = (canWaitIdle?: boolean) => {
             session.customer.main_email = user.email;
           }
           if (user.emailVerified) {
-            const isEmailChanged = user.email !== customerEmail.value;
-            if (isEmailChanged || !isAuthenticated.value) {
-              await authenticate();
-            }
-            if (isEmailChanged || !session.customer.doc_number) {
-              await fetchCustomer();
+            try {
+              const isEmailChanged = user.email !== customerEmail.value;
+              if (isEmailChanged || !isAuthenticated.value) {
+                await authenticate();
+              }
+              if (isEmailChanged || !session.customer.doc_number) {
+                await fetchCustomer();
+              }
+            } catch (err) {
+              // `isAuthReady` must be set anyway to unlock watching consumers
+              console.error(err);
             }
           }
         }
