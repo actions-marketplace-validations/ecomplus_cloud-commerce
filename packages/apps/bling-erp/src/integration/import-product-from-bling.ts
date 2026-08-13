@@ -4,6 +4,7 @@ import api from '@cloudcommerce/api';
 import ecomUtils from '@ecomplus/utils';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
+import skipEventHeaders from './helpers/skip-event-headers';
 import parseProduct from './parsers/product-from-bling';
 import importCategory from './import-category-from-bling';
 import parseStockFromDeposits from './helpers/parse-stock-from-deposits';
@@ -33,22 +34,22 @@ const createUpdateProduct = async (
     blingItems = blingItems.concat(blingProduct.variacoes);
   }
   blingItems.forEach((blingItem) => {
-    if (
-      typeof blingItem.estoqueAtual !== 'number'
-      && typeof blingItem.estoque?.saldoVirtualTotal === 'number'
-    ) {
-      blingItem.estoqueAtual = Math.max(0, blingItem.estoque.saldoVirtualTotal);
-    }
-    if (
-      Array.isArray(blingItem.depositos)
-      && (blingDeposit || typeof blingItem.estoqueAtual !== 'number')
-    ) {
+    if (Array.isArray(blingItem.depositos)) {
+      /* `depositos` MUST always win when available so the imported quantity
+      comes from the same base the exportation compares against
+      (`parseStockFromDeposits`), otherwise the two sides never converge and
+      stock walks down on every import/export cycle with reserved orders. */
       blingItem.estoqueAtual = parseStockFromDeposits(
         blingItem,
         blingDeposit,
         Boolean(appData.has_stock_reserve),
       );
       delete blingItem.depositos;
+    } else if (
+      typeof blingItem.estoqueAtual !== 'number'
+      && typeof blingItem.estoque?.saldoVirtualTotal === 'number'
+    ) {
+      blingItem.estoqueAtual = Math.max(0, blingItem.estoque.saldoVirtualTotal);
     }
   });
 
@@ -76,7 +77,7 @@ const createUpdateProduct = async (
     endpoint += '/quantity';
     logger.info(endpoint, { quantity, sku });
     // @ts-ignore
-    return api.put(endpoint, quantity);
+    return api.put(endpoint, quantity, { headers: skipEventHeaders });
   }
 
   if (!product && blingProduct.codigoPai) {
@@ -104,10 +105,10 @@ const createUpdateProduct = async (
   }
   if (product) {
     logger.info(`PATCH products/${product._id}`, { bodyProduct });
-    return api.patch(`products/${product._id}`, bodyProduct);
+    return api.patch(`products/${product._id}`, bodyProduct, { headers: skipEventHeaders });
   }
   logger.info('POST products', { bodyProduct });
-  return api.post('products', bodyProduct);
+  return api.post('products', bodyProduct, { headers: skipEventHeaders });
 };
 
 const getBlingProduct = async (

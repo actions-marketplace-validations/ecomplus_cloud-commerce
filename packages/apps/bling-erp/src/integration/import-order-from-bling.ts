@@ -5,6 +5,7 @@ import { createBlingClient } from '../bling-auth/client';
 import parseOrder from './parsers/order-from-bling';
 import parseStatusFromBling from './parsers/status-from-bling';
 import shouldAdvanceFulfillment from './helpers/guard-fulfillment-transition';
+import skipEventHeaders from './helpers/skip-event-headers';
 
 const getLastStatus = (records: Array<Record<string, any>> | undefined) => {
   let statusRecord: Record<string, any> | undefined;
@@ -58,7 +59,7 @@ const importOrderFromBling = async (
   const partialOrder = await parseOrder(blingOrder, order.shipping_lines, bling);
   const promises: Array<Promise<any>> = [];
   if (partialOrder && Object.keys(partialOrder).length) {
-    promises.push(api.patch(`orders/${order._id}`, partialOrder));
+    promises.push(api.patch(`orders/${order._id}`, partialOrder, { headers: skipEventHeaders }));
   }
 
   const { financialStatus, fulfillmentStatus } = parseStatusFromBling(situacao, appData);
@@ -82,7 +83,7 @@ const importOrderFromBling = async (
       promises.push(api.post(`orders/${order._id}/${subresource}`, {
         ...statusBody,
         status: newStatus,
-      } as any));
+      } as any, { headers: skipEventHeaders }));
     });
 
   const [firstResult] = await Promise.all(promises);
