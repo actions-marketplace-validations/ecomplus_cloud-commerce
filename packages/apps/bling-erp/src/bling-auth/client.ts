@@ -1,4 +1,4 @@
-import type { AxiosInstance, AxiosRequestConfig } from 'axios';
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import createAccess from './create-access';
 
 // https://developer.bling.com.br/limites#filtros
@@ -8,14 +8,26 @@ const delay = (timeout: number) => new Promise((resolve) => {
   setTimeout(() => resolve(true), timeout);
 });
 
+/*
+Bling allows up to 3 requests/s, keeping 1 request/s to be safe. O controle é
+de módulo, não de instância: `createBlingClient` é chamado dentro de cada
+handler, então um campo de instância nunca espaçaria nada; e cada chamada
+concorrente reserva o próximo slot, para `Promise.all` não disparar junto.
+*/
+let nextRequestAt = 0;
+const throttleRequest = async () => {
+  const now = Date.now();
+  const wait = Math.max(0, nextRequestAt - now);
+  nextRequestAt = Math.max(now, nextRequestAt) + 1000;
+  if (wait > 0) await delay(wait);
+};
+
 class Bling {
   clientId: string;
 
   clientSecret: string;
 
   private _bling: AxiosInstance | null;
-
-  private lastRequest: Date | null;
 
   constructor(clientId: string, clientSecret: string) {
     if (!clientId || !clientSecret) {
@@ -26,24 +38,6 @@ class Bling {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this._bling = null;
-    this.lastRequest = null;
-  }
-
-  // Bling allows up to 3 requests/s, keeping 1 request/s to be safe
-  private async checkTime() {
-    const now = new Date();
-    if (!this.lastRequest) {
-      this.lastRequest = now;
-      return true;
-    }
-    const timeout = now.getTime() - this.lastRequest.getTime();
-    if (timeout >= 1000) {
-      this.lastRequest = new Date();
-      return true;
-    }
-    await delay(1000 - timeout);
-    this.lastRequest = new Date();
-    return true;
   }
 
   private async axios() {
@@ -58,8 +52,8 @@ class Bling {
     url: string,
     data?: any,
     opts?: AxiosRequestConfig,
-  ): Promise<any> {
-    await this.checkTime();
+  ): Promise<AxiosResponse> {
+    await throttleRequest();
     const bling = await this.axios();
     const send = (instance: AxiosInstance) => {
       switch (method) {
