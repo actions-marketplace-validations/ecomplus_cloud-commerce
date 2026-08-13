@@ -1,5 +1,4 @@
 import type { Request, Response } from 'firebase-functions/v1';
-import type { Applications } from '@cloudcommerce/types';
 import api from '@cloudcommerce/api';
 import config, { logger } from '@cloudcommerce/firebase/lib/config';
 import checkEnableApi from './bling-auth/check-enable-api';
@@ -31,11 +30,11 @@ export default async (req: Request, res: Response) => {
   }
 
   const { apps: { blingErp: { appId } } } = config.get();
-  const applicationId = req.query._id;
-  const appEndpoint = applicationId && typeof applicationId === 'string'
-    ? `applications/${applicationId}` as `applications/${Applications['_id']}`
-    : `applications/app_id:${appId}` as const;
-  const application = (await api.get(appEndpoint)).data;
+  /* O documento da aplicação é sempre resolvido pelo `app_id` fixo do Bling:
+  aceitar um `_id` da query permitiria ao chamador escolher o documento de outro
+  app instalado (possivelmente sem `callback_token`), pular a autenticação e
+  fazer o `afterQueue` gravar logs de erro no `hidden_data` do app escolhido. */
+  const application = (await api.get(`applications/app_id:${appId}`)).data;
   const appData = {
     ...application.data,
     ...application.hidden_data,
