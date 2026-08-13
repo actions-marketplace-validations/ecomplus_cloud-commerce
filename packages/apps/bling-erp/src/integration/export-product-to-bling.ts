@@ -181,6 +181,14 @@ const exportProductToBling = async (
   if (!estoqueId) {
     return response;
   }
+  if (!blingDeposit && stockBalances && stockBalances.depositos?.length > 1) {
+    /* Sem `bling_deposit` configurado a comparação soma todos os depósitos, mas
+    a escrita iria só para o primeiro: a soma nunca converge e o depósito seria
+    sobrescrito com o total da loja. Melhor não exportar estoque nesse caso. */
+    logger.warn(`Multiple Bling deposits for ${blingProductId} and none configured,`
+      + ' skipping stock exportation');
+    return response;
+  }
 
   const isVariations = Boolean(product.variations && product.variations.length);
   const isUpdateStock = appData.export_quantity === true || !originalBlingProduct;
@@ -204,13 +212,23 @@ const exportProductToBling = async (
       }).catch(logger.error));
     }
   } else if (bodyBlingProduct?.variacoes) {
-    const newVariations: Array<Record<string, any>> = responseData?.variations?.saved
-      || responseData?.variacoes
-      || [];
+    let newVariations: Array<Record<string, any>> = responseData?.variacoes || [];
+    if (!newVariations.length && !originalBlingProduct) {
+      /* O `POST /produtos` da API v3 responde só com o id do produto criado,
+      então o produto deve ser relido para obter os ids das variações criadas
+      e inicializar o estoque de cada uma. */
+      newVariations = await bling.get(`/produtos/${blingProductId}`)
+        .then(({ data }) => data.data?.variacoes || [])
+        .catch((err: any) => {
+          logger.warn(`Failed reading created variations: ${err.message}`);
+          return [];
+        });
+    }
     product.variations?.forEach((variation) => {
       const variationFind = bodyBlingProduct!.variacoes.find(({ nome }) => nome === variation.name);
       if (!variationFind) return;
-      const newVariation = newVariations.find(({ nomeVariacao, nome }) => {
+      const newVariation = newVariations.find(({ codigo, nomeVariacao, nome }) => {
+        if (codigo && variationFind.codigo) return codigo === variationFind.codigo;
         return (nomeVariacao || nome) === variationFind.variacao?.nome;
       });
       const isUpdateStockVariation = appData.export_quantity === true || Boolean(newVariation);
