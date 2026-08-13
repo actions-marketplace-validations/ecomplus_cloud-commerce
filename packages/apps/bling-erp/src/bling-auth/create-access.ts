@@ -4,6 +4,19 @@ import createAxios from './create-axios';
 import blingAuth from './create-auth';
 import getTokensDocRef from './tokens-doc';
 import decideRefreshFailure from './decide-refresh-failure';
+import { RATE_LIMIT_WINDOW_MS } from './check-enable-api';
+
+/*
+Erros de estado próprios (sem `.response` do axios) são normalizados com a
+forma que o `after-bling-queue` sabe classificar, como o app Tiny faz no
+`post-tiny-erp`: 429 mantém o item na fila para retry via redelivery,
+`isConfigError` registra a mensagem sem descartar como erro inesperado.
+*/
+const newRateLimitError = () => {
+  const err: any = new Error('Bling daily rate limit reached, please try again later');
+  err.response = { status: 429 };
+  return err;
+};
 
 /*
 Returns an Axios instance authenticated with a valid Bling access token,
@@ -18,8 +31,9 @@ const createAccess = async (
   const docRef = getTokensDocRef();
   const docSnapshot = await docRef.get();
   if (!docSnapshot.exists) {
-    const err: any = new Error('No Bling token document');
+    const err: any = new Error('No Bling token document, authorize the app on admin panel');
     err.code = 'NO_BLING_TOKEN';
+    err.isConfigError = true;
     throw err;
   }
   const {
@@ -33,11 +47,13 @@ const createAccess = async (
 
   const now = Timestamp.now();
   const timeLimitBloqued = Timestamp.fromMillis(
-    (updatedAt?.toMillis() || now.toMillis()) + (12 * 60 * 60 * 1000),
+    (updatedAt?.toMillis() || now.toMillis()) + RATE_LIMIT_WINDOW_MS,
   );
 
   if (isBloqued) {
-    throw new Error('Bling refreshToken is invalid need to update');
+    const err: any = new Error('Bling refresh token is invalid, re-authorize the app');
+    err.isConfigError = true;
+    throw err;
   }
 
   if (isRateLimit) {
@@ -47,11 +63,11 @@ const createAccess = async (
       updatedAt: now,
       countErr: 0,
     }, { merge: true }).catch(logger.error);
-    throw new Error('Bling daily rate limit reached, please try again later');
+    throw newRateLimitError();
   }
   if (isRateLimitDoc) {
     if (now.toMillis() < timeLimitBloqued.toMillis()) {
-      throw new Error('Bling daily rate limit reached, please try again later');
+      throw newRateLimitError();
     }
     // Disable daily rate limit
     await docRef.set({
