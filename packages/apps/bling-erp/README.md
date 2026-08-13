@@ -27,7 +27,8 @@ Integração com o [Bling ERP](https://www.bling.com.br/) usando a
 
 Cadastre no Bling (Preferências > Integrações > Callbacks) a URL da função
 `blingerp-callback`. Recomendado: defina a variável de ambiente
-`BLINGERP_CALLBACK_TOKEN` (ou o campo `callback_token` nas configurações do app) e
+`BLINGERP_CALLBACK_TOKEN` (input `blingerp-callback-token` na GitHub Action de
+deploy, ou o campo `callback_token` nas configurações do app) e
 inclua `?token=<valor>` na URL. Sem isso o app aceita qualquer requisição com corpo
 válido (e registra um aviso no log) — o conteúdo do callback não é confiado, todos
 os dados são relidos da API do Bling, mas o token evita processamento indevido.
@@ -57,9 +58,15 @@ Para validar credenciais e endpoints contra a API real (somente leitura, nada é
 criado ou alterado):
 
 ```bash
-BLING_CLIENT_ID=... BLING_CLIENT_SECRET=... BLING_REFRESH_TOKEN=... \
-  node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
+BLING_ACCESS_TOKEN=... node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
 ```
+
+Use o `access_token` do doc `blingTokens/{storeId}` de uma loja já autorizada
+(válido por ~6h). O script também aceita `BLING_CLIENT_ID` + `BLING_CLIENT_SECRET`
++ `BLING_REFRESH_TOKEN`, **mas o Bling rotaciona o refresh token a cada uso**: se
+ele veio de uma integração ativa, grave o novo refresh token impresso pelo script
+de volta no doc do Firestore, senão o próximo refresh da integração recebe
+`invalid_grant` e ela é bloqueada até reautorizar.
 
 ## Coleções no Firestore
 

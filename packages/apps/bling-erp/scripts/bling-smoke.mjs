@@ -4,23 +4,30 @@ Read-only smoke test against the real Bling API (v3), to validate credentials,
 scopes and every endpoint used by the app. Nothing is created or updated.
 
 Usage:
-  BLING_CLIENT_ID=... BLING_CLIENT_SECRET=... BLING_REFRESH_TOKEN=... \
-    node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
+  BLING_ACCESS_TOKEN=... node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
 
-Get `BLING_REFRESH_TOKEN` from the Firestore doc `blingTokens/{storeId}` of an
-already authorized store, or from the authorization flow response.
+Get `BLING_ACCESS_TOKEN` from the `access_token` on the Firestore doc
+`blingTokens/{storeId}` of an already authorized store (valid for ~6h).
+
+Running with BLING_CLIENT_ID + BLING_CLIENT_SECRET + BLING_REFRESH_TOKEN is
+also supported BUT the refresh token is rotated on use: the store integration
+keeps the old one and gets `invalid_grant` on the next refresh, blocking it.
+Only use it with a token that is NOT stored by a live integration, or save the
+printed new refresh token back to the Firestore doc right after running.
 */
 import { URLSearchParams } from 'node:url';
 
 const {
+  BLING_ACCESS_TOKEN: directAccessToken,
   BLING_CLIENT_ID: clientId,
   BLING_CLIENT_SECRET: clientSecret,
   BLING_REFRESH_TOKEN: refreshToken,
 } = process.env;
 const [sku, orderNumber] = process.argv.slice(2);
 
-if (!clientId || !clientSecret || !refreshToken) {
-  console.error('Set BLING_CLIENT_ID, BLING_CLIENT_SECRET and BLING_REFRESH_TOKEN');
+if (!directAccessToken && (!clientId || !clientSecret || !refreshToken)) {
+  console.error('Set BLING_ACCESS_TOKEN (preferred, no token rotation)'
+    + ' or BLING_CLIENT_ID + BLING_CLIENT_SECRET + BLING_REFRESH_TOKEN');
   process.exit(1);
 }
 
@@ -29,6 +36,13 @@ let checks = 0;
 let failures = 0;
 
 const getAccessToken = async () => {
+  if (directAccessToken) {
+    console.log('✓ Using BLING_ACCESS_TOKEN directly (no refresh, nothing is rotated)');
+    return directAccessToken;
+  }
+  console.warn('⚠ Refreshing rotates the refresh token: if it came from a live'
+    + ' integration, save the printed new refresh_token back to the Firestore doc'
+    + ' `blingTokens/{storeId}`, or the integration will be blocked on invalid_grant');
   const res = await fetch(`${BASE_URL}/oauth/token`, {
     method: 'POST',
     headers: {
