@@ -16,7 +16,9 @@ export const blingerp = {
   onStoreEvent: createAppEventsFunction(
     'blingErp',
     handleApiEvent,
-    { memory: '512MB' },
+    /* 60s (padrão) estoura em importação de produto com muitas imagens,
+    que são baixadas e reenviadas sequencialmente à Storage API */
+    { memory: '512MB', timeoutSeconds: 300 },
   ),
 
   callback: functions
@@ -43,6 +45,8 @@ export const blingerp = {
   cronRefreshToken: functions
     .region(region)
     .runWith({ timeoutSeconds: 120, memory: '256MB' })
-    .pubsub.schedule(process.env.CRONTAB_BLINGERP_REFRESH_TOKEN || '36,51 * * * *')
+    /* Token de ~6h renovado a partir de 70min do vencimento: checagem por
+    hora basta, duas por hora vinham do fan-out multi-tenant do app legado */
+    .pubsub.schedule(process.env.CRONTAB_BLINGERP_REFRESH_TOKEN || '36 * * * *')
     .onRun(() => refreshBlingToken()),
 };

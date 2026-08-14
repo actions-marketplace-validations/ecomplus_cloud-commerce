@@ -14,6 +14,23 @@ const tryImageSize = (data: any) => {
 };
 
 let ecomAccessToken: string | undefined;
+let tokenFetchedAt = 0;
+// Reautentica preventivamente: o token module-scoped sobrevive em instância
+// quente além da validade e todo upload passava a cair no fallback com 401
+const TOKEN_TTL_MS = 1000 * 60 * 30;
+
+const getEcomAccessToken = async () => {
+  const { apiAuth: { authenticationId, apiKey } } = getEnv();
+  if (!ecomAccessToken || Date.now() - tokenFetchedAt > TOKEN_TTL_MS) {
+    const { data } = await api.post('authenticate', {
+      _id: authenticationId,
+      api_key: apiKey,
+    });
+    ecomAccessToken = data.access_token;
+    tokenFetchedAt = Date.now();
+  }
+  return ecomAccessToken;
+};
 
 const tryImageUpload = async (
   originImgUrl: string,
@@ -23,16 +40,8 @@ const tryImageUpload = async (
     storeId,
     apiAuth: {
       authenticationId,
-      apiKey,
     },
   } = getEnv();
-  if (!ecomAccessToken) {
-    const { data } = await api.post('authenticate', {
-      _id: authenticationId,
-      api_key: apiKey,
-    });
-    ecomAccessToken = data.access_token;
-  }
   try {
     const { data } = await axios.get(originImgUrl, {
       responseType: 'arraybuffer',
@@ -45,17 +54,26 @@ const tryImageUpload = async (
       filename += '.jpg';
     }
     formData.append('file', new Blob([data]), filename);
-    const {
-      data: { picture },
-      status,
-    } = await axios.post('https://ecomplus.app/api/storage/upload.json', formData, {
-      headers: {
-        'X-Store-ID': storeId,
-        'X-My-ID': authenticationId,
-        'X-Access-Token': ecomAccessToken,
-      },
-      timeout: 60000,
-    });
+    const postUpload = async () => {
+      return axios.post('https://ecomplus.app/api/storage/upload.json', formData, {
+        headers: {
+          'X-Store-ID': storeId,
+          'X-My-ID': authenticationId,
+          'X-Access-Token': await getEcomAccessToken(),
+        },
+        timeout: 60000,
+      });
+    };
+    let uploadResponse: Awaited<ReturnType<typeof postUpload>>;
+    try {
+      uploadResponse = await postUpload();
+    } catch (err: any) {
+      if (err.response?.status !== 401) throw err;
+      // Token invalidado antes do TTL: reautentica e tenta o upload uma vez
+      ecomAccessToken = undefined;
+      uploadResponse = await postUpload();
+    }
+    const { data: { picture }, status } = uploadResponse;
     if (picture) {
       const w = dimensions?.width;
       const h = dimensions?.height;
