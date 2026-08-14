@@ -7,7 +7,7 @@ Usage:
   BLING_ACCESS_TOKEN=... node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
 
 Get `BLING_ACCESS_TOKEN` from the `access_token` on the Firestore doc
-`blingTokens/{storeId}` of an already authorized store (valid for ~6h).
+`blingTokens/{clientId}` of an already authorized store (valid for ~6h).
 
 Running with BLING_CLIENT_ID + BLING_CLIENT_SECRET + BLING_REFRESH_TOKEN is
 also supported BUT the refresh token is rotated on use: the store integration
@@ -42,7 +42,7 @@ const getAccessToken = async () => {
   }
   console.warn('⚠ Refreshing rotates the refresh token: if it came from a live'
     + ' integration, save the printed new refresh_token back to the Firestore doc'
-    + ' `blingTokens/{storeId}`, or the integration will be blocked on invalid_grant');
+    + ' `blingTokens/{clientId}`, or the integration will be blocked on invalid_grant');
   const res = await fetch(`${BASE_URL}/oauth/token`, {
     method: 'POST',
     headers: {
@@ -158,17 +158,6 @@ if (sampleOrderNumber) {
     const pedido = await check('Pedido completo', `/pedidos/vendas/${blingOrder.id}`);
     if (pedido?.situacao?.id) {
       await check('Situação do pedido', `/situacoes/${pedido.situacao.id}`);
-    }
-    if (pedido?.nota?.numero && pedido.nota.serie) {
-      /*
-      Legacy path kept from the v1 app, only used to enrich invoice link/tracking;
-      a failure here is expected on API v3 and safely ignored at runtime.
-      */
-      await check(
-        'Nota fiscal (path legado)',
-        `/notafiscal/${pedido.nota.numero}/${pedido.nota.serie}`,
-        { optional: true },
-      );
     }
   }
 }

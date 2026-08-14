@@ -4,7 +4,7 @@ import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
 import parseOrder from './parsers/order-from-bling';
 import parseStatusFromBling from './parsers/status-from-bling';
-import shouldAdvanceFulfillment from './helpers/guard-fulfillment-transition';
+import shouldAdvanceFulfillment from './helpers/should-advance-fulfillment';
 import skipEventHeaders from './helpers/skip-event-headers';
 
 const getLastStatus = (records: Array<Record<string, any>> | undefined) => {
@@ -39,6 +39,24 @@ const importOrderFromBling = async (
   const { data: { data: blingOrder } } = await bling.get(`/pedidos/vendas/${blingOrderId}`);
   logger.info(`Found Bling order ${blingOrder.numero}`);
 
+  /*
+  O rastreio completo só vem no corpo do callback do Bling — o
+  `GET /pedidos/vendas/{id}` nunca devolve `urlRastreamento` —, então os
+  campos de transporte do callback são fundidos no pedido relido da API.
+  */
+  const callbackOrder = queueEntry._callbackOrder as Record<string, any> | undefined;
+  if (callbackOrder) {
+    if (callbackOrder.transporte?.volumes?.length) {
+      blingOrder.transporte = {
+        ...blingOrder.transporte,
+        volumes: callbackOrder.transporte.volumes,
+      };
+    }
+    if (callbackOrder.codigosRastreamento && !blingOrder.codigosRastreamento) {
+      blingOrder.codigosRastreamento = callbackOrder.codigosRastreamento;
+    }
+  }
+
   const situacao = blingOrder.situacao?.id
     ? await bling.get(`/situacoes/${blingOrder.situacao.id}`)
       .then(({ data }) => data.data?.nome?.toLowerCase())
@@ -56,7 +74,7 @@ const importOrderFromBling = async (
   }
   const order = result[0] as Orders;
 
-  const partialOrder = await parseOrder(blingOrder, order.shipping_lines, bling);
+  const partialOrder = parseOrder(blingOrder, order.shipping_lines);
   const promises: Array<Promise<any>> = [];
   if (partialOrder && Object.keys(partialOrder).length) {
     promises.push(api.patch(`orders/${order._id}`, partialOrder, { headers: skipEventHeaders }));

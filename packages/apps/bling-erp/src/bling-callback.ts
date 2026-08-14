@@ -1,4 +1,5 @@
 import type { Request, Response } from 'firebase-functions/v1';
+import type { IntegrationHandler } from './integration/integration-handler';
 import api from '@cloudcommerce/api';
 import config, { logger } from '@cloudcommerce/firebase/lib/config';
 import checkEnableApi from './bling-auth/check-enable-api';
@@ -51,7 +52,7 @@ export default async (req: Request, res: Response) => {
     logger.warn('Bling callback accepted without token validation,'
       + ' set `BLINGERP_CALLBACK_TOKEN` and append `?token=` to the callback URL on Bling');
   }
-  if (!(await checkEnableApi())) {
+  if (!(await checkEnableApi(appData.client_id))) {
     logger.warn('> Error in request to Bling API');
     res.sendStatus(403);
     return;
@@ -59,7 +60,7 @@ export default async (req: Request, res: Response) => {
 
   const runQueueEntry = async (
     queueEntry: Record<string, any>,
-    handler: any,
+    handler: IntegrationHandler,
     canCreateNew = false,
   ) => {
     try {
@@ -79,14 +80,22 @@ export default async (req: Request, res: Response) => {
   const { pedidos, estoques } = retorno;
   if (Array.isArray(pedidos)) {
     for (let i = 0; i < pedidos.length; i++) {
-      const { numero } = pedidos[i].pedido || pedidos[i];
+      const callbackOrder = pedidos[i].pedido || pedidos[i];
+      const { numero } = callbackOrder;
       if (numero) {
         logger.info(`> Bling callback order ${numero}`);
+        /*
+        O corpo do callback é a única fonte do rastreio completo: o
+        `GET /pedidos/vendas/{id}` nunca devolve `urlRastreamento`, então
+        `transporte`/`codigosRastreamento` seguem na entrada da fila para
+        serem fundidos no pedido relido da API.
+        */
         // eslint-disable-next-line no-await-in-loop
         await runQueueEntry({
           action: 'importation',
           queue: 'order_numbers',
           nextId: String(numero),
+          _callbackOrder: callbackOrder,
           isNotQueued: true,
           isHiddenQueue: true,
         }, importOrder);

@@ -53,17 +53,9 @@ describe('Parse Bling status to store', async () => {
 });
 
 describe('Parse Bling order to store', async () => {
-  const blingStub = {
-    get: async () => ({ data: {} }),
-  };
-
   test('Tracking code, invoice and staff notes', async () => {
     const shippingLines = JSON.parse(JSON.stringify(order.shipping_lines));
-    const partialOrder = await parseOrderFromBling(
-      blingOrderWithInvoice,
-      shippingLines,
-      blingStub,
-    );
+    const partialOrder = parseOrderFromBling(blingOrderWithInvoice, shippingLines);
     assert.strictEqual(partialOrder.staff_notes, 'Separado pela equipe A');
     const [shippingLine] = partialOrder.shipping_lines;
     assert.deepStrictEqual(shippingLine.tracking_codes, [{
@@ -85,17 +77,13 @@ describe('Parse Bling order to store', async () => {
       code: 'MANUAL123',
       link: 'https://rastreio.test/MANUAL123',
     }];
-    const partialOrder = await parseOrderFromBling(
-      blingOrderWithInvoice,
-      shippingLines,
-      blingStub,
-    );
+    const partialOrder = parseOrderFromBling(blingOrderWithInvoice, shippingLines);
     assert.strictEqual(shippingLines[0].tracking_codes[0].code, 'MANUAL123');
     assert.strictEqual(partialOrder.staff_notes, 'Separado pela equipe A');
   });
 
   test('Order without shipping lines', async () => {
-    const partialOrder = await parseOrderFromBling(blingOrderWithInvoice, [], blingStub);
+    const partialOrder = parseOrderFromBling(blingOrderWithInvoice, []);
     assert.deepStrictEqual(Object.keys(partialOrder), ['staff_notes']);
   });
 });

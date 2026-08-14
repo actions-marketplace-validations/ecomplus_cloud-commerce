@@ -1,13 +1,11 @@
 import type { Orders } from '@cloudcommerce/types';
-import type Bling from '../../bling-auth/client';
 
 type ShippingLines = Exclude<Orders['shipping_lines'], undefined>;
 
-export default async (
+export default (
   blingOrder: Record<string, any>,
   shippingLines: ShippingLines | undefined,
-  bling: Bling,
-): Promise<Record<string, any>> => {
+): Record<string, any> => {
   const partialOrder: Record<string, any> = {};
   if (blingOrder.observacaointerna) {
     partialOrder.staff_notes = blingOrder.observacaointerna;
@@ -66,7 +64,7 @@ export default async (
       if (!shippingLine.invoices) {
         shippingLine.invoices = [];
       }
-      let invoiceIndex = shippingLine.invoices.findIndex(({ number }) => {
+      const invoiceIndex = shippingLine.invoices.findIndex(({ number }) => {
         return number === String(nota.numero);
       });
       if (invoiceIndex === -1) {
@@ -86,38 +84,11 @@ export default async (
           }
         }
         shippingLine.invoices.push(invoice as any);
-        invoiceIndex = shippingLine.invoices.length - 1;
         partialOrder.shipping_lines = shippingLines;
-      } else if (invoiceIndex && nota.chaveAcesso) {
+      } else if (nota.chaveAcesso && !shippingLine.invoices[invoiceIndex].access_key) {
+        // Back-fill da chave de acesso em nota já registrada (índice 0 incluso)
         shippingLine.invoices[invoiceIndex].access_key = String(nota.chaveAcesso);
-      }
-
-      if (nota.serie) {
-        const data = await bling.get(`/notafiscal/${nota.numero}/${nota.serie}`)
-          .then((response) => response.data)
-          .catch(() => null);
-        let blingInvoice: Record<string, any> | undefined;
-        if (Array.isArray(data?.notasfiscais)) {
-          blingInvoice = data.notasfiscais.find((fiscal: Record<string, any>) => {
-            return !nota.chaveAcesso
-              || String(fiscal.notafiscal.chaveAcesso) === String(nota.chaveAcesso);
-          });
-          if (blingInvoice) {
-            blingInvoice = blingInvoice.notafiscal;
-          }
-        }
-        if (blingInvoice) {
-          checkTrackingCodes(blingInvoice);
-          ([
-            ['linkDanfe', 'link'],
-            ['chaveAcesso', 'access_key'],
-          ] as Array<[string, string]>).forEach(([blingField, field]) => {
-            if (blingInvoice![blingField] && !shippingLine.invoices![invoiceIndex][field]) {
-              shippingLine.invoices![invoiceIndex][field] = String(blingInvoice![blingField]);
-              partialOrder.shipping_lines = shippingLines;
-            }
-          });
-        }
+        partialOrder.shipping_lines = shippingLines;
       }
     }
   }
