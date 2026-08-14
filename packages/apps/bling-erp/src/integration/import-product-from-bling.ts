@@ -117,6 +117,7 @@ const getBlingProduct = async (
   blingProductId: string | number | undefined,
   queueEntry: Record<string, any>,
   appData: Record<string, any>,
+  isQuantityOnly = false,
 ) => {
   const endpoint = blingProductId ? `/produtos/${blingProductId}` : `/produtos?codigo=${sku}`;
   const { data } = await bling.get(endpoint);
@@ -182,6 +183,11 @@ const getBlingProduct = async (
         variation.depositos = stockVariation.depositos;
       }
     });
+  }
+
+  if (isQuantityOnly) {
+    // Só a quantidade será usada: preço multiloja e categoria são dispensáveis
+    return blingProductData;
   }
 
   const blingStore = appData.bling_store;
@@ -279,7 +285,18 @@ const importProductFromBling = async (
   const bling = createBlingClient(appData);
   const metafields = (product?.metafields || []) as Array<Record<string, any>>;
   const blingProductId = metafields.find(({ field }) => field === 'bling:id')?.value;
-  const blingProduct = await getBlingProduct(bling, sku, blingProductId, queueEntry, appData);
+  /* Espelha a condição do caminho de só-quantidade em `createUpdateProduct`:
+  quando o destino é o `PUT .../quantity`, preço multiloja e categoria não são
+  usados e as chamadas extras ao Bling podem ser puladas. */
+  const isQuantityOnly = Boolean(product && (variationId || !appData.update_product));
+  const blingProduct = await getBlingProduct(
+    bling,
+    sku,
+    blingProductId,
+    queueEntry,
+    appData,
+    isQuantityOnly,
+  );
 
   // Fallback: if variation SKU search failed, try finding by parent product SKU
   if (!product && blingProduct.codigo && blingProduct.codigo !== sku) {

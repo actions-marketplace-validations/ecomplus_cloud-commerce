@@ -74,13 +74,25 @@ export default async (
   out of importation logs to avoid flooding it with stock updates.
   */
   if (isError || (isQueued && !isImportation)) {
-    logs.unshift(logEntry);
-    await updateAppData(application, {
-      logs: logs.slice(0, 200),
-    }, {
-      isHiddenData: true,
-      canSendPubSub: false,
-    });
+    const [lastLog] = logs;
+    /* Falha persistente repete o mesmo erro a cada callback: sem o dedupe,
+    cada ocorrência viraria um `PATCH` de até ~1MB no `hidden_data`. */
+    const isRepeatedError = Boolean(
+      isError && lastLog
+      && lastLog.success === false
+      && lastLog.resource === logEntry.resource
+      && (lastLog.bling_id || lastLog.resource_id) === (logEntry.bling_id || logEntry.resource_id)
+      && lastLog.notes === logEntry.notes,
+    );
+    if (!isRepeatedError) {
+      logs.unshift(logEntry);
+      await updateAppData(application, {
+        logs: logs.slice(0, 200),
+      }, {
+        isHiddenData: true,
+        canSendPubSub: false,
+      });
+    }
   }
   if (isError) {
     logger.warn(`Log for ${logEntry.resource} failure`, { logEntry });

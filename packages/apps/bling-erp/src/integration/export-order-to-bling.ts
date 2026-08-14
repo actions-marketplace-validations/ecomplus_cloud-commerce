@@ -71,9 +71,6 @@ const exportOrderToBling = async (
   const bling = createBlingClient(appData);
   const searchEndpoint = `/pedidos/vendas?${params.toString()}`;
 
-  const paymentTypeId = transaction
-    ? await getPaymentBling(bling, transaction, appData.parse_payment, order.payment_method_label)
-    : null;
   const allStatusBling = await getStatusBling(bling);
   const blingStatuses = parseStatusToBling(order, appData);
 
@@ -144,6 +141,11 @@ const exportOrderToBling = async (
     if (!customerIdBling) {
       throw new Error('Bling Customer not found');
     }
+    /* Buscado só quando o pedido vai ser criado/atualizado de fato: mudança de
+    status de pedido já exportado não usa forma de pagamento nem itens. */
+    const paymentTypeId = transaction
+      ? await getPaymentBling(bling, transaction, appData.parse_payment, order.payment_method_label)
+      : null;
     const itemsBling = await getProductsBling(bling, order);
     const blingOrder = parseOrder(
       order,

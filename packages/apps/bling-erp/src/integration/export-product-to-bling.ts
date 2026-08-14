@@ -1,4 +1,5 @@
 import type { Products } from '@cloudcommerce/types';
+import type Bling from '../bling-auth/client';
 import { URLSearchParams } from 'url';
 import ecomUtils from '@ecomplus/utils';
 import api from '@cloudcommerce/api';
@@ -7,7 +8,7 @@ import { createBlingClient } from '../bling-auth/client';
 import parseProduct from './parsers/product-to-bling';
 import parseStockFromDeposits from './helpers/parse-stock-from-deposits';
 
-const getBlingStockBalances = (bling: any, blingProductId: string | number) => {
+const getBlingStockBalances = (bling: Bling, blingProductId: string | number) => {
   const params = new URLSearchParams({ 'idsProdutos[]': String(blingProductId) });
   return bling.get(`/estoques/saldos?${params.toString()}`)
     .then(({ data }) => data?.data?.[0] as Record<string, any> | undefined)
@@ -75,6 +76,8 @@ const exportProductToBling = async (
 
   const blingProducts = await findBlingProducts();
   let originalBlingProduct: Record<string, any> | undefined;
+  // Resposta de detalhe (`/produtos/{id}`) já é o documento completo
+  let isDetailLoaded = false;
   if (Array.isArray(blingProducts) && blingProducts.length) {
     originalBlingProduct = blingProducts.find(({ codigo }) => product.sku === String(codigo));
     if (!blingProductId && originalBlingProduct) {
@@ -87,6 +90,7 @@ const exportProductToBling = async (
   } else if (blingProducts && !Array.isArray(blingProducts)) {
     originalBlingProduct = blingProducts;
     blingProductId = blingProducts.id;
+    isDetailLoaded = true;
   }
 
   let response: any = null;
@@ -95,9 +99,11 @@ const exportProductToBling = async (
     /*
     Listing endpoints return a summarized product, without `variacoes`. The full
     document is required to send each variation with its Bling ID, otherwise the
-    update is rejected as if the variations were being created again.
+    update is rejected as if the variations were being created again. Skipped
+    when the detail response was already loaded (simple product would repeat an
+    identical GET on every exportation).
     */
-    if (blingProductId && !originalBlingProduct?.variacoes) {
+    if (blingProductId && !isDetailLoaded && !originalBlingProduct?.variacoes) {
       originalBlingProduct = await bling.get(`/produtos/${blingProductId}`)
         .then(({ data }) => data.data)
         .catch(() => originalBlingProduct);
