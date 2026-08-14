@@ -11,8 +11,8 @@ o cron mesmo depois da política já ter liberado.
 */
 export const RATE_LIMIT_WINDOW_MS = 12 * 60 * 60 * 1000;
 
-const checkEnableApi = async () => {
-  const docSnapshot = await getTokensDocRef().get();
+const checkEnableApi = async (clientId: string) => {
+  const docSnapshot = await getTokensDocRef(clientId).get();
   if (!docSnapshot.exists) {
     return false;
   }

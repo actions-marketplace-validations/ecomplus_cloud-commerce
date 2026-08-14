@@ -2,7 +2,7 @@ import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import createAxios from './create-axios';
 import blingAuth from './create-auth';
-import getTokensDocRef from './tokens-doc';
+import getTokensDocRef, { EXPIRES_IN_GAP_SEC } from './tokens-doc';
 import decideRefreshFailure from './decide-refresh-failure';
 import { RATE_LIMIT_WINDOW_MS } from './check-enable-api';
 
@@ -28,7 +28,7 @@ const createAccess = async (
   tokenExpirationGap = 9000,
   isRateLimit = false,
 ) => {
-  const docRef = getTokensDocRef();
+  const docRef = getTokensDocRef(clientId);
   const docSnapshot = await docRef.get();
   if (!docSnapshot.exists) {
     const err: any = new Error('No Bling token document, authorize the app on admin panel');
@@ -86,7 +86,8 @@ const createAccess = async (
       await docRef.set({
         ...data,
         updatedAt: now,
-        expiredAt: Timestamp.fromMillis(now.toMillis() + ((data.expires_in - 300) * 1000)),
+        expiredAt: Timestamp
+          .fromMillis(now.toMillis() + ((data.expires_in - EXPIRES_IN_GAP_SEC) * 1000)),
         countErr: 0,
       }, { merge: true });
       accessToken = data.access_token;

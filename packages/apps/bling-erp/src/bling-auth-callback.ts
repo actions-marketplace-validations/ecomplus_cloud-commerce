@@ -4,7 +4,7 @@ import api from '@cloudcommerce/api';
 import config, { logger } from '@cloudcommerce/firebase/lib/config';
 import updateAppData from '@cloudcommerce/firebase/lib/helpers/update-app-data';
 import blingAuth from './bling-auth/create-auth';
-import getTokensDocRef from './bling-auth/tokens-doc';
+import getTokensDocRef, { EXPIRES_IN_GAP_SEC } from './bling-auth/tokens-doc';
 import { createBlingClient } from './bling-auth/client';
 
 /*
@@ -35,9 +35,10 @@ export default async (req: Request, res: Response) => {
   try {
     const data = await blingAuth(clientId, clientSecret, code);
     const now = Timestamp.now();
-    await getTokensDocRef().set({
+    await getTokensDocRef(clientId).set({
       ...data,
-      expiredAt: Timestamp.fromMillis(now.toMillis() + ((data.expires_in - 3600) * 1000)),
+      expiredAt: Timestamp
+        .fromMillis(now.toMillis() + ((data.expires_in - EXPIRES_IN_GAP_SEC) * 1000)),
       createdAt: now,
       updatedAt: now,
       isBloqued: false,

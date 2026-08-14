@@ -21,7 +21,7 @@ Integração com o [Bling ERP](https://www.bling.com.br/) usando a
    `blingerp-authCallback`:
    `https://<region>-<project>.cloudfunctions.net/blingerp-authCallback`;
 3. Autorize o aplicativo pelo Bling — os tokens ficam salvos no Firestore em
-   `blingTokens/{storeId}`.
+   `blingTokens/{clientId}`.
 
 ## Callbacks do Bling
 
@@ -61,7 +61,7 @@ criado ou alterado):
 BLING_ACCESS_TOKEN=... node scripts/bling-smoke.mjs [SKU] [NUMERO_PEDIDO]
 ```
 
-Use o `access_token` do doc `blingTokens/{storeId}` de uma loja já autorizada
+Use o `access_token` do doc `blingTokens/{clientId}` de uma loja já autorizada
 (válido por ~6h). O script também aceita `BLING_CLIENT_ID` + `BLING_CLIENT_SECRET`
 + `BLING_REFRESH_TOKEN`, **mas o Bling rotaciona o refresh token a cada uso**: se
 ele veio de uma integração ativa, grave o novo refresh token impresso pelo script
@@ -70,5 +70,5 @@ de volta no doc do Firestore, senão o próximo refresh da integração recebe
 
 ## Coleções no Firestore
 
-- `blingTokens/{storeId}`: tokens OAuth, flags de bloqueio e de limite diário;
-- `blingStatuses/{storeId}`: cache (1h) das situações do módulo de vendas.
+- `blingTokens/{clientId}`: tokens OAuth, flags de bloqueio e de limite diário;
+- `blingStatuses/{clientId}`: cache (1h) das situações do módulo de vendas.

@@ -1,4 +1,5 @@
 import type { ApiEventHandler } from '@cloudcommerce/firebase/lib/helpers/pubsub';
+import type { IntegrationHandler } from './integration/integration-handler';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import checkEnableApi from './bling-auth/check-enable-api';
 import exportProduct from './integration/export-product-to-bling';
@@ -8,7 +9,10 @@ import importOrder from './integration/import-order-from-bling';
 import afterQueue from './integration/after-bling-queue';
 
 // Async integration handlers
-const integrationHandlers = {
+const integrationHandlers: Record<
+  'exportation' | 'importation',
+  Record<string, IntegrationHandler>
+> = {
   exportation: {
     product_ids: exportProduct,
     order_ids: exportOrder,
@@ -89,7 +93,7 @@ const handleApiEvent: ApiEventHandler = async ({
   if (!integrationConfig) {
     return null;
   }
-  if (!(await checkEnableApi())) {
+  if (!(await checkEnableApi(appData.client_id))) {
     logger.warn('Bling API is not enabled, check the app authorization');
     return null;
   }
@@ -109,7 +113,7 @@ const handleApiEvent: ApiEventHandler = async ({
         const ids = actionQueues[queue];
         if (Array.isArray(ids) && ids.length) {
           const isHiddenQueue = action.charAt(0) === '_';
-          const handlerName = action.replace(/^_+/, '');
+          const handlerName = action.replace(/^_+/, '') as keyof typeof integrationHandlers;
           const handler = integrationHandlers[handlerName][queue.toLowerCase()];
           const nextId = ids[0];
           if (typeof nextId === 'string' && nextId.length && handler) {
