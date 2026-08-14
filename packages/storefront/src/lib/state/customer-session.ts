@@ -5,57 +5,34 @@ import { nickname as getNickname } from '@ecomplus/utils';
 import { ref, computed, watch } from 'vue';
 import { requestIdleCallback } from '@@sf/sf-lib';
 import useStorage from '@@sf/state/use-storage';
+import {
+  hasCensoredFields,
+  withoutCensoredFields,
+} from '@@sf/state/customer-session/censored-session';
 
 export const EMAIL_STORAGE_KEY = 'emailForSignIn';
 
 const storageKey = 'ecomSession';
-const emptySession = {
+type SessionAuth = null | {
+  access_token: string,
+  expires: string,
+  customer_id: Customers['_id'],
+};
+/* Always a fresh object: `useStorage` may keep the initial value as the live
+reactive state, so a shared constant would be mutated by session writes and
+turn the `logout()` reset into a self-assignment no-op. */
+const getEmptySession = () => ({
   customer: {
     display_name: '',
     main_email: '',
-  },
-  auth: null,
-};
+  } as Partial<Customers>,
+  auth: null as SessionAuth,
+});
 const session = useStorage<{
   customer: Partial<Customers>,
-  auth: null | {
-    access_token: string,
-    expires: string,
-    customer_id: Customers['_id'],
-  },
-}>(storageKey, emptySession);
+  auth: SessionAuth,
+}>(storageKey, getEmptySession());
 
-/*
- * Profiles identified by e-mail and document only (without verified login) used to be
- * returned with censored fields: '***' surname, '000XX' phone, address holding just zip
- * and province. Sessions persisted back then are still cached on customer browsers and
- * get submitted on checkout, where they overwrite the saved profile and produce an
- * incomplete shipping address that payment gateways reject.
- */
-const CENSORED = '***';
-type CustomerAddress = NonNullable<Customers['addresses']>[number];
-// Predicates must match server side checks on `@cloudcommerce/modules` checkout.ts
-const isCensoredPhone = (number?: string) => !!number && /^0{3,}\d{1,4}$/.test(number);
-const isCensoredAddress = ({ name, line_address: lineAddress }: CustomerAddress) => {
-  return !!name?.includes(CENSORED) || !!lineAddress?.includes(CENSORED);
-};
-const hasCensoredFields = ({ name, phones, addresses }: Partial<Customers>) => {
-  if (name?.family_name?.includes(CENSORED)) return true;
-  if (phones?.some(({ number }) => isCensoredPhone(number))) return true;
-  return !!addresses?.some(isCensoredAddress);
-};
-const withoutCensoredFields = (customerData: Partial<Customers>) => {
-  const { phones, addresses, ...safeCustomer } = customerData;
-  const cleanCustomer: Partial<Customers> = safeCustomer;
-  /* `name` is intentionally kept even when `family_name` is censored: it's required
-  on `@checkout` contract, `given_name` is preserved valid by the mask, and the
-  '***' marker triggers server side restore from the saved profile (checkout.ts). */
-  const cleanPhones = phones?.filter(({ number }) => !isCensoredPhone(number));
-  if (cleanPhones?.length) cleanCustomer.phones = cleanPhones;
-  const cleanAddresses = addresses?.filter((address) => !isCensoredAddress(address));
-  if (cleanAddresses?.length) cleanCustomer.addresses = cleanAddresses;
-  return cleanCustomer;
-};
 if (!import.meta.env.SSR && hasCensoredFields(session.customer)) {
   // Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer`
   // runs again once the customer is authenticated.
@@ -128,7 +105,11 @@ const fetchCustomer = async () => {
   });
   /* Saved profiles may still hold censored fields persisted by old checkouts,
   they must not be cached back as valid values. */
-  session.customer = withoutCensoredFields(data);
+  const cleanCustomer = withoutCensoredFields(data);
+  // Consumers assume these keys always set on `session.customer`
+  cleanCustomer.display_name = cleanCustomer.display_name || '';
+  cleanCustomer.main_email = cleanCustomer.main_email || '';
+  session.customer = cleanCustomer;
   return session.customer;
 };
 
@@ -206,6 +187,7 @@ const logout = () => {
     return;
   }
   firebaseAuth.signOut().then(() => {
+    const emptySession = getEmptySession();
     session.auth = emptySession.auth;
     session.customer = emptySession.customer;
     localStorage.removeItem(storageKey);
