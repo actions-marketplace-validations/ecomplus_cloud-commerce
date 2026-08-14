@@ -13,17 +13,26 @@ const newOrder = async (orderBody: OrderSet) => {
   try {
     const orderId = (await api.post('orders', orderBody)).data._id;
     return new Promise<{ order: Orders | null, err?: any }>((resolve) => {
-      setTimeout(async () => {
+      let attempts = 0;
+      const readFullOrder = async () => {
+        attempts += 1;
         try {
           const { data: order } = await api.get(`orders/${orderId}`, {
             headers: { 'x-primary-db': 'true' },
           });
+          // The order number is set asynchronously and may not be ready yet,
+          // without it the storefront can't reference the order for the customer
+          if (!order.number && attempts <= 3) {
+            setTimeout(readFullOrder, 400 * attempts);
+            return;
+          }
           resolve({ order });
         } catch (err: any) {
           logger.error(err);
           resolve({ order: null, err });
         }
-      }, 400);
+      };
+      setTimeout(readFullOrder, 400);
     });
   } catch (err: any) {
     if (err.message === 'fetch failed') {
