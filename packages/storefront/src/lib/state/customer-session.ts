@@ -5,25 +5,44 @@ import { nickname as getNickname } from '@ecomplus/utils';
 import { ref, computed, watch } from 'vue';
 import { requestIdleCallback } from '@@sf/sf-lib';
 import useStorage from '@@sf/state/use-storage';
+import {
+  hasCensoredFields,
+  withoutCensoredFields,
+} from '@@sf/state/customer-session/censored-session';
 
 export const EMAIL_STORAGE_KEY = 'emailForSignIn';
 
 const storageKey = 'ecomSession';
-const emptySession = {
+type SessionAuth = null | {
+  access_token: string,
+  expires: string,
+  customer_id: Customers['_id'],
+};
+/* Always a fresh object: `useStorage` may keep the initial value as the live
+reactive state, so a shared constant would be mutated by session writes and
+turn the `logout()` reset into a self-assignment no-op. */
+const getEmptySession = () => ({
   customer: {
     display_name: '',
     main_email: '',
-  },
-  auth: null,
-};
+  } as Partial<Customers>,
+  auth: null as SessionAuth,
+});
 const session = useStorage<{
   customer: Partial<Customers>,
-  auth: null | {
-    access_token: string,
-    expires: string,
-    customer_id: Customers['_id'],
-  },
-}>(storageKey, emptySession);
+  auth: SessionAuth,
+}>(storageKey, getEmptySession());
+
+if (!import.meta.env.SSR && hasCensoredFields(session.customer)) {
+  /* Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer` runs
+  again once the customer is authenticated. Runs once per contaminated session: the
+  censored phones and addresses are gone afterwards, so the check turns false. */
+  const cleanCustomer = withoutCensoredFields(session.customer);
+  delete cleanCustomer.doc_number;
+  cleanCustomer.display_name = cleanCustomer.display_name || '';
+  cleanCustomer.main_email = cleanCustomer.main_email || '';
+  session.customer = cleanCustomer;
+}
 
 const isAuthenticated = computed(() => {
   const { auth } = session;
@@ -85,8 +104,14 @@ const fetchCustomer = async () => {
   const { data } = await api.get(`customers/${auth.customer_id}`, {
     accessToken,
   });
-  session.customer = data;
-  return data;
+  /* Saved profiles may still hold censored fields persisted by old checkouts,
+  they must not be cached back as valid values. */
+  const cleanCustomer = withoutCensoredFields(data);
+  // Consumers assume these keys always set on `session.customer`
+  cleanCustomer.display_name = cleanCustomer.display_name || '';
+  cleanCustomer.main_email = cleanCustomer.main_email || '';
+  session.customer = cleanCustomer;
+  return session.customer;
 };
 
 const isAuthReady = ref(false);
@@ -119,12 +144,17 @@ const initializeFirebaseAuth = (canWaitIdle?: boolean) => {
             session.customer.main_email = user.email;
           }
           if (user.emailVerified) {
-            const isEmailChanged = user.email !== customerEmail.value;
-            if (isEmailChanged || !isAuthenticated.value) {
-              await authenticate();
-            }
-            if (isEmailChanged || !session.customer.doc_number) {
-              await fetchCustomer();
+            try {
+              const isEmailChanged = user.email !== customerEmail.value;
+              if (isEmailChanged || !isAuthenticated.value) {
+                await authenticate();
+              }
+              if (isEmailChanged || !session.customer.doc_number) {
+                await fetchCustomer();
+              }
+            } catch (err) {
+              // `isAuthReady` must be set anyway to unlock watching consumers
+              console.error(err);
             }
           }
         }
@@ -158,6 +188,7 @@ const logout = () => {
     return;
   }
   firebaseAuth.signOut().then(() => {
+    const emptySession = getEmptySession();
     session.auth = emptySession.auth;
     session.customer = emptySession.customer;
     localStorage.removeItem(storageKey);
