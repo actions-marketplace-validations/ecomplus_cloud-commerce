@@ -167,15 +167,19 @@ const watchAppRoutes = () => {
             params.shipping_delivery_days = days;
           }
           emitGtagEvent('purchase', params, paramsToHash);
-          // Awin expects the commissionable amount without freight and taxes
-          const awinAmount = Math.max(fixMoneyValue(
-            (params.value as number) - (params.shipping || 0) - (params.tax || 0),
-          ), 0);
-          emitAwinFallbackPixel(
-            params.order_number ? String(params.order_number) : orderId,
-            awinAmount,
-            params.coupon,
-          );
+          // Skip the pixel without the customer-facing number: the S2S call resolves
+          // it from the API, and a pixel with a mismatched ref would double-count
+          if (params.order_number) {
+            // Awin expects the commissionable amount without freight and taxes
+            const awinAmount = Math.max(fixMoneyValue(
+              Number(params.value) - (Number(params.shipping) || 0) - (Number(params.tax) || 0),
+            ), 0);
+            emitAwinFallbackPixel(
+              String(params.order_number),
+              awinAmount,
+              params.coupon,
+            );
+          }
           localStorage.setItem('gtag.orderIdSent', orderId);
         }
         isPurchaseSent = true;

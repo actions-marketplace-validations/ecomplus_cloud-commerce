@@ -1,5 +1,7 @@
+import type { Orders } from '@cloudcommerce/types';
 import type { AnalyticsEvent } from './send-analytics-events';
 import config, { logger } from '@cloudcommerce/firebase/lib/config';
+import api from '@cloudcommerce/api';
 import axios from 'axios';
 
 // https://help.awin.com/apidocs/conversion-api
@@ -28,6 +30,23 @@ const stripPipes = (value: unknown) => (
   typeof value === 'string' ? value.replace(/\|/g, '') : value
 );
 
+// Customers coming back from external payment pages land on the confirmation
+// route without the order number, so the purchase event may miss it
+const fetchOrderFallback = async (orderId: string) => {
+  if (!/^[0-9a-f]{24}$/.test(orderId)) return null;
+  try {
+    const { data: order } = await api.get(`orders/${orderId as Orders['_id']}`, {
+      fields: ['number', 'amount', 'extra_discount'] as const,
+    });
+    return order;
+  } catch (err: any) {
+    logger.warn(`Failed reading order ${orderId} for Awin reference`, {
+      status: err.statusCode || err.response?.status,
+    });
+    return null;
+  }
+};
+
 const sendToAwin = async ({
   events,
   awc,
@@ -41,19 +60,35 @@ const sendToAwin = async ({
   const purchaseEvents = events.filter((ev) => ev.name === 'purchase');
   if (!purchaseEvents.length) return;
   const awinOrders: Array<Record<string, any>> = [];
-  purchaseEvents.forEach(({ params }) => {
-    if (!params?.transaction_id) return;
-    const voucher = params.coupon;
+  for (let i = 0; i < purchaseEvents.length; i++) {
+    const { params } = purchaseEvents[i];
+    // eslint-disable-next-line no-continue
+    if (!params?.transaction_id) continue;
+    let orderNumber = params.order_number;
+    let voucher = params.coupon;
     // Awin expects the commissionable amount without freight and taxes
-    const grossValue = Number(params.value) || 0;
+    let grossValue = Number(params.value) || 0;
+    let shipping = Number(params.shipping) || 0;
+    let tax = Number(params.tax) || 0;
+    if (!orderNumber) {
+      // eslint-disable-next-line no-await-in-loop
+      const order = await fetchOrderFallback(`${params.transaction_id}`);
+      if (order) {
+        orderNumber = order.number;
+        if (order.amount) {
+          grossValue = Number(order.amount.total) || grossValue;
+          shipping = Number(order.amount.freight) || 0;
+          tax = Number(order.amount.tax) || 0;
+        }
+        if (!voucher) voucher = order.extra_discount?.discount_coupon;
+      }
+    }
     const netAmount = Math.max(
-      Math.round(
-        (grossValue - (Number(params.shipping) || 0) - (Number(params.tax) || 0)) * 100,
-      ) / 100,
+      Math.round((grossValue - shipping - tax) * 100) / 100,
       0,
     );
     const awinOrder: Record<string, any> = {
-      orderReference: String(params.order_number || params.transaction_id),
+      orderReference: String(orderNumber || params.transaction_id),
       channel: validChannels.has(channel) ? channel : 'aw',
       awc,
       voucher,
@@ -74,7 +109,7 @@ const sendToAwin = async ({
       })),
     };
     awinOrders.push(awinOrder);
-  });
+  }
   if (awinOrders.length) {
     const data = { orders: awinOrders };
     if (DEBUG_SERVER_ANALYTICS?.toLowerCase() === 'true') {
