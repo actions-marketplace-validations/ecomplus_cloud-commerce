@@ -34,8 +34,9 @@ const session = useStorage<{
 }>(storageKey, getEmptySession());
 
 if (!import.meta.env.SSR && hasCensoredFields(session.customer)) {
-  // Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer`
-  // runs again once the customer is authenticated.
+  /* Keep any still-valid cached fields, but drop `doc_number` so `fetchCustomer` runs
+  again once the customer is authenticated. Runs once per contaminated session: the
+  censored phones and addresses are gone afterwards, so the check turns false. */
   const cleanCustomer = withoutCensoredFields(session.customer);
   delete cleanCustomer.doc_number;
   cleanCustomer.display_name = cleanCustomer.display_name || '';

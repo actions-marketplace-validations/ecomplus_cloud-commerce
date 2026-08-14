@@ -17,8 +17,10 @@ const isCensoredAddress = ({ name, line_address: lineAddress }: CustomerAddress)
   return !!name?.includes(CENSORED) || !!lineAddress?.includes(CENSORED);
 };
 
-export const hasCensoredFields = ({ name, phones, addresses }: Partial<Customers>) => {
-  if (name?.family_name?.includes(CENSORED)) return true;
+/* Only fields `withoutCensoredFields` actually removes may be tested here: `name` is
+deliberately kept, so testing it would keep this `true` forever on a profile censored
+server side, dropping `doc_number` and refetching the customer on every page load. */
+export const hasCensoredFields = ({ phones, addresses }: Partial<Customers>) => {
   if (phones?.some(({ number }) => isCensoredPhone(number))) return true;
   return !!addresses?.some(isCensoredAddress);
 };
