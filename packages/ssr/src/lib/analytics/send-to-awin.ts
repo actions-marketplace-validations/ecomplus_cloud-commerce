@@ -44,16 +44,24 @@ const sendToAwin = async ({
   purchaseEvents.forEach(({ params }) => {
     if (!params?.transaction_id) return;
     const voucher = params.coupon;
+    // Awin expects the commissionable amount without freight and taxes
+    const grossValue = Number(params.value) || 0;
+    const netAmount = Math.max(
+      Math.round(
+        (grossValue - (Number(params.shipping) || 0) - (Number(params.tax) || 0)) * 100,
+      ) / 100,
+      0,
+    );
     const awinOrder: Record<string, any> = {
       orderReference: String(params.order_number || params.transaction_id),
       channel: validChannels.has(channel) ? channel : 'aw',
       awc,
       voucher,
-      amount: params.value,
+      amount: netAmount,
       currency: params.currency || config.get().currency,
       commissionGroups: [{
         code: 'DEFAULT',
-        amount: params.value,
+        amount: netAmount,
       }],
       basket: params.items?.map((item: Record<string, any>) => ({
         id: stripPipes(item.object_id || item.item_id),

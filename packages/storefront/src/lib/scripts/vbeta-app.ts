@@ -167,9 +167,13 @@ const watchAppRoutes = () => {
             params.shipping_delivery_days = days;
           }
           emitGtagEvent('purchase', params, paramsToHash);
+          // Awin expects the commissionable amount without freight and taxes
+          const awinAmount = Math.max(fixMoneyValue(
+            (params.value as number) - (params.shipping || 0) - (params.tax || 0),
+          ), 0);
           emitAwinFallbackPixel(
             params.order_number ? String(params.order_number) : orderId,
-            params.value as number,
+            awinAmount,
             params.coupon,
           );
           localStorage.setItem('gtag.orderIdSent', orderId);
