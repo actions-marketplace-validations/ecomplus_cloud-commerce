@@ -1,10 +1,10 @@
 import assert from 'node:assert';
 import test, { describe } from 'node:test';
-import shouldAdvance from '../lib/integration/helpers/guard-fulfillment-transition.js';
+import shouldAdvance from '../lib/integration/helpers/should-advance-fulfillment.js';
 
 // C5 — o import não pode regredir o fulfillment. Numa conta Bling padrão,
 // "enviado"/"entregue" colapsam em "Atendido", que volta como invoice_issued.
-describe('C5 — guarda contra regressão de fulfillment no import', () => {
+describe('Guard against fulfillment status regression on import', () => {
   test('não regride delivered para invoice_issued', () => {
     assert.strictEqual(shouldAdvance('delivered', 'invoice_issued'), false);
   });

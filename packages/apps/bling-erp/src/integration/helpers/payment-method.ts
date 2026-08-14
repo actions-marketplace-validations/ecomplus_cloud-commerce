@@ -43,5 +43,3 @@ export const getPaymentBling = async (
     });
   return formaPagamento?.id;
 };
-
-export default getPaymentBling;

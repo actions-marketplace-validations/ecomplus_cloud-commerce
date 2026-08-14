@@ -12,7 +12,7 @@ const base = {
   current: { updatedAtMs: 1000, countErr: 0 },
 };
 
-describe('C1 — decisão ao falhar o refresh do token Bling', () => {
+describe('Decide on Bling token refresh failure', () => {
   test('refresh concorrente bem-sucedido reusa o token novo, mesmo com invalid_grant', () => {
     const d = decide({
       ...base,
@@ -49,18 +49,22 @@ describe('C1 — decisão ao falhar o refresh do token Bling', () => {
     const d = decide({
       ...base,
       isInvalidGrant: true,
-      current: { updatedAtMs: 4000, accessToken: 'NOVO', expiredAtMs: 5000 + GAP + 1, isBloqued: true },
+      current: {
+        updatedAtMs: 4000, accessToken: 'NOVO', expiredAtMs: 5000 + GAP + 1, isBloqued: true,
+      },
     });
     assert.deepStrictEqual(d, { action: 'block' });
   });
 
   test('erro transitório abaixo do limite apenas conta o erro', () => {
-    const d = decide({ ...base, isInvalidGrant: false, current: { updatedAtMs: 1000, countErr: 1 } });
+    const current = { updatedAtMs: 1000, countErr: 1 };
+    const d = decide({ ...base, isInvalidGrant: false, current });
     assert.deepStrictEqual(d, { action: 'countErr' });
   });
 
   test('erro transitório acima do limite bloqueia', () => {
-    const d = decide({ ...base, isInvalidGrant: false, current: { updatedAtMs: 1000, countErr: 3 } });
+    const current = { updatedAtMs: 1000, countErr: 3 };
+    const d = decide({ ...base, isInvalidGrant: false, current });
     assert.deepStrictEqual(d, { action: 'block' });
   });
 });

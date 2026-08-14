@@ -5,7 +5,7 @@ import parseStockFromDeposits from '../lib/integration/helpers/parse-stock-from-
 // C6 — import e export precisam usar EXATAMENTE a mesma base de estoque.
 // Com reserva: saldoVirtual; sem reserva: saldo/saldoFisico; filtra pelo
 // depósito configurado ou soma todos.
-describe('C6 — parseStockFromDeposits (base única import/export)', () => {
+describe('parseStockFromDeposits as the single stock base for import/export', () => {
   const item = {
     depositos: [
       { id: 10, saldoFisico: 12, saldoVirtual: 8 },
@@ -28,7 +28,8 @@ describe('C6 — parseStockFromDeposits (base única import/export)', () => {
   });
 
   test('prefere `saldo` numérico a `saldoFisico`', () => {
-    assert.strictEqual(parseStockFromDeposits({ depositos: [{ id: 10, saldo: 7, saldoFisico: 12 }] }, 10, false), 7);
+    const blingItem = { depositos: [{ id: 10, saldo: 7, saldoFisico: 12 }] };
+    assert.strictEqual(parseStockFromDeposits(blingItem, 10, false), 7);
   });
 
   test('casa id como string ou número', () => {

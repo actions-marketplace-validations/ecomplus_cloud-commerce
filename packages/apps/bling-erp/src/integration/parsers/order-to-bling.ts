@@ -12,11 +12,20 @@ const holidays = [
   '2027-11-02', '2027-11-20', '2027-12-24', '2027-12-25', '2027-12-31',
 ];
 
+const lastHolidaysYear = Number(holidays[holidays.length - 1].substring(0, 4));
+let hasWarnedHolidays = false;
+
 const toDateStr = (d: Date) => `${d.getUTCFullYear()}-`
   + `${String(d.getUTCMonth() + 1).padStart(2, '0')}-`
   + `${String(d.getUTCDate()).padStart(2, '0')}`;
 
 const isNonWorkingDay = (dateStr: string) => {
+  if (Number(dateStr.substring(0, 4)) > lastHolidaysYear && !hasWarnedHolidays) {
+    // Sem isso a tabela expira em silêncio e o `dataPrevista` degrada sem sinal
+    hasWarnedHolidays = true;
+    logger.warn(`Bling holidays table outdated (up to ${lastHolidaysYear}),`
+      + ' delivery estimates ignoring holidays');
+  }
   const day = new Date(`${dateStr}T12:00:00Z`).getUTCDay();
   return day === 0 || day === 6 || holidays.includes(dateStr);
 };
