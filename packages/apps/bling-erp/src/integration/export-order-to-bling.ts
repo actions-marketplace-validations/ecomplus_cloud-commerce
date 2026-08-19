@@ -61,15 +61,21 @@ const exportOrderToBling = async (
     hasCreatedBlingOrder = Boolean(blingOrderId);
   }
 
-  const urlParams: Record<string, string> = {
-    numero: String(appData.random_order_number === true ? blingOrderNumber : order.number),
-  };
-  if (blingStore) {
-    urlParams.idLoja = String(blingStore);
+  /* Com `random_order_number` o pedido está no Bling sob o número guardado em
+  `bling:numero`; sem ele (primeira exportação) não há número a procurar, e a
+  busca era montada com `numero=undefined`, rejeitada pela API do Bling. */
+  const searchOrderNumber = appData.random_order_number === true
+    ? blingOrderNumber
+    : order.number;
+  let searchEndpoint: string | undefined;
+  if (searchOrderNumber) {
+    const urlParams: Record<string, string> = { numero: String(searchOrderNumber) };
+    if (blingStore) {
+      urlParams.idLoja = String(blingStore);
+    }
+    searchEndpoint = `/pedidos/vendas?${new URLSearchParams(urlParams).toString()}`;
   }
-  const params = new URLSearchParams(urlParams);
   const bling = createBlingClient(appData);
-  const searchEndpoint = `/pedidos/vendas?${params.toString()}`;
 
   const allStatusBling = await getStatusBling(bling);
   const blingStatuses = parseStatusToBling(order, appData);
@@ -79,6 +85,9 @@ const exportOrderToBling = async (
     const endpoint = hasCreatedBlingOrder
       ? `/pedidos/vendas/${blingOrderId}`
       : searchEndpoint;
+    if (!endpoint) {
+      return undefined;
+    }
     try {
       return (await bling.get(endpoint)).data.data;
     } catch (err: any) {
@@ -88,11 +97,13 @@ const exportOrderToBling = async (
       if (hasCreatedBlingOrder) {
         hasCreatedBlingOrder = false;
         blingOrderId = undefined;
-        try {
-          return (await bling.get(searchEndpoint)).data.data;
-        } catch (retryErr: any) {
-          if (retryErr.response?.status !== 404) {
-            throw retryErr;
+        if (searchEndpoint) {
+          try {
+            return (await bling.get(searchEndpoint)).data.data;
+          } catch (retryErr: any) {
+            if (retryErr.response?.status !== 404) {
+              throw retryErr;
+            }
           }
         }
       }
@@ -174,6 +185,20 @@ const exportOrderToBling = async (
             namespace: 'bling',
             field: 'bling:id',
             value: String(blingOrderId),
+          });
+        }
+        /* Guardado para a busca por número funcionar quando o número do Bling
+        não é o da loja (`random_order_number` ou colisão de numeração). */
+        if (
+          blingOrderNumber
+          && !appData.disable_order_number
+          && !metafields.some(({ field }) => field === 'bling:numero')
+        ) {
+          metafields.push({
+            _id: ecomUtils.randomObjectId(),
+            namespace: 'bling',
+            field: 'bling:numero',
+            value: String(blingOrderNumber),
           });
         }
         await api.patch(`orders/${order._id}`, { metafields } as any).catch(logger.error);

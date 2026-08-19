@@ -121,8 +121,17 @@ describe('Parse order to Bling', async () => {
     const randomized = parseOrder(order, '87654321', undefined, {
       random_order_number: true,
     }, 42, 3, itemsBling);
-    assert.strictEqual(randomized.numero, '87654321');
+    assert.strictEqual(randomized.numero, 87654321);
     assert.strictEqual(randomized.numeroLoja, '1042');
+  });
+
+  /* C4 — quando o número da loja já existe no Bling, a exportação gera um
+  aleatório; antes o parser ignorava esse valor e reenviava o número da loja,
+  e o `POST` voltava rejeitado por número duplicado a cada mudança de status. */
+  test('Número gerado por colisão de numeração é respeitado', () => {
+    const collided = parseOrder(order, '87654321', undefined, {}, 42, 3, itemsBling);
+    assert.strictEqual(collided.numero, 87654321);
+    assert.strictEqual(collided.numeroLoja, '1042');
   });
 
   test('Disable order number when configured', () => {

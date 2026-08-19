@@ -60,7 +60,11 @@ export default (
     };
     blingOrder.dataSaida = blingOrder.data;
     if (order.number && !appData.disable_order_number) {
-      blingOrder.numero = appData.random_order_number === true ? blingOrderNumber : order.number;
+      /* `blingOrderNumber` já chega resolvido pela exportação: o número da loja
+      no caso normal, ou um aleatório quando `random_order_number` está ligado ou
+      quando o número da loja já existe no Bling — antes o aleatório era
+      calculado e descartado aqui, e o `POST` voltava com número duplicado. */
+      blingOrder.numero = Number(blingOrderNumber) || order.number;
     }
     if (blingStore) {
       blingOrder.loja = { id: Number(blingStore) };
