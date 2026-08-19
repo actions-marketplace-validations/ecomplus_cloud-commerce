@@ -97,6 +97,19 @@ const parseDimensions = (dimensoes: Record<string, any> | undefined) => {
   return Object.keys(dimensions).length ? dimensions : null;
 };
 
+/*
+Quantidade só é gravada quando o Bling realmente devolveu um saldo: o
+`GET /produtos/{id}` não traz estoque nas variações e o `/estoques/saldos` pode
+falhar (é tolerado com `catch`), então assumir 0 nesses casos zerava o estoque
+do produto e de todas as variações a cada falha transitória.
+*/
+export const parseStockQuantity = (estoqueAtual: any): number | undefined => {
+  if (typeof estoqueAtual !== 'number' || Number.isNaN(estoqueAtual)) {
+    return undefined;
+  }
+  return estoqueAtual > 0 ? estoqueAtual : 0;
+};
+
 const getBaseUrl = (link: string) => {
   try {
     const url = new URL(link);
@@ -118,9 +131,15 @@ export default async (
     available: blingProduct.situacao === 'A',
     sku,
     name,
-    quantity: 0,
     price: Number(blingProduct.preco),
   };
+  const quantity = parseStockQuantity(blingProduct.estoqueAtual);
+  if (quantity !== undefined) {
+    product.quantity = quantity;
+  } else if (isNew) {
+    // Produto novo precisa nascer com alguma quantidade; atualização não
+    product.quantity = 0;
+  }
 
   if (!appData.non_update_description) {
     if (blingProduct.descricaoComplementar) {
@@ -242,7 +261,10 @@ export default async (
       variation.name = `${name} / ${specTexts.join(' / ')}`.substring(0, 100);
       variation.sku = codigo || String(id);
       variation.specifications = specifications;
-      variation.quantity = variacao.estoqueAtual >= 0 ? variacao.estoqueAtual : 0;
+      const variationQuantity = parseStockQuantity(variacao.estoqueAtual);
+      if (variationQuantity !== undefined) {
+        variation.quantity = variationQuantity;
+      }
       if (pictureId > 0) {
         pendingPictureIds.push({ variation, pictureIndex: pictureId });
       }

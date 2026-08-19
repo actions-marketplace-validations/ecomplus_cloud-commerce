@@ -187,6 +187,45 @@ describe('Parse Bling product to store', async () => {
     assert.strictEqual(parsed.slug, undefined);
   });
 
+  /* C1 — sem saldo do Bling a quantidade tem que ficar de fora do body: o
+  `GET /produtos/{id}` não traz estoque nas variações e o `/estoques/saldos` é
+  tolerado com `catch`, então gravar 0 zerava o estoque da loja inteira. */
+  test('Sem saldo do Bling a quantidade não é enviada', async () => {
+    const blingProductNoStock = JSON.parse(JSON.stringify(blingProduct));
+    delete blingProductNoStock.estoqueAtual;
+    blingProductNoStock.variacoes.forEach((variacao) => {
+      delete variacao.estoqueAtual;
+    });
+    const parsed = await parseProductFromBling(
+      blingProductNoStock,
+      [{ _id: '9e2b3c4d5f6a7b8c9d0e1f2a', sku: 'CAM-BASICA-P', quantity: 5 }],
+      false,
+      appData,
+    );
+    assert.strictEqual(parsed.quantity, undefined);
+    // Variação que já existe na loja mantém o estoque atual, não é zerada
+    const kept = parsed.variations.find(({ sku }) => sku === 'CAM-BASICA-P');
+    assert.strictEqual(kept.quantity, 5);
+    const created = parsed.variations.find(({ sku }) => sku === 'CAM-BASICA-M');
+    assert.strictEqual(created.quantity, undefined);
+  });
+
+  test('Produto novo sem saldo nasce zerado', async () => {
+    const blingProductNoStock = JSON.parse(JSON.stringify(blingProduct));
+    delete blingProductNoStock.variacoes;
+    const parsed = await parseProductFromBling(blingProductNoStock, undefined, true, appData);
+    assert.strictEqual(parsed.quantity, 0);
+  });
+
+  test('Saldo do Bling é gravado, negativo vira zero', async () => {
+    const blingProductStock = JSON.parse(JSON.stringify(blingProduct));
+    blingProductStock.estoqueAtual = 12;
+    blingProductStock.variacoes[0].estoqueAtual = -3;
+    const parsed = await parseProductFromBling(blingProductStock, undefined, false, appData);
+    assert.strictEqual(parsed.quantity, 12);
+    assert.strictEqual(parsed.variations[0].quantity, 0);
+  });
+
   test('Description is skipped with `non_update_description`', async () => {
     const parsed = await parseProductFromBling(
       JSON.parse(JSON.stringify(blingProduct)),
