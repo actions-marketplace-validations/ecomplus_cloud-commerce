@@ -23,7 +23,8 @@
   "homepage": "https://github.com/ecomplus/cloud-commerce/tree/main/packages/apps/bling-erp#readme",
   "scripts": {
     "build": "bash ../../../scripts/build-lib.sh",
-    "test": "bash scripts/tests.sh"
+    "test": "bash scripts/tests.sh",
+    "test:apps": "bash scripts/tests.sh"
   },
   "dependencies": {
     "@cloudcommerce/api": "workspace:*",
