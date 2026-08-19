@@ -1,6 +1,7 @@
 import type { AppOrId } from '@cloudcommerce/firebase/lib/helpers/update-app-data';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import updateAppData from '@cloudcommerce/firebase/lib/helpers/update-app-data';
+import { redactSecrets, isAuthRequest } from './helpers/redact-secrets';
 
 export default async (
   queueEntry: Record<string, any>,
@@ -52,7 +53,11 @@ export default async (
           const { url, method, data: reqData } = config;
           try {
             notes += `\n\n-- Request -- \n${method} ${url} `;
-            notes += `\n${JSON.stringify(reqData)} `;
+            /* O corpo do `/oauth/token` é só credencial (o `refresh_token`),
+            não ajuda o lojista a entender a falha e não pode ir para o log. */
+            if (!isAuthRequest(url)) {
+              notes += `\n${JSON.stringify(reqData)} `;
+            }
           } catch {
             //
           }
@@ -65,7 +70,7 @@ export default async (
     }
   }
   if (notes) {
-    logEntry.notes = notes.substring(0, 5000);
+    logEntry.notes = redactSecrets(notes).substring(0, 5000);
   }
 
   /*
