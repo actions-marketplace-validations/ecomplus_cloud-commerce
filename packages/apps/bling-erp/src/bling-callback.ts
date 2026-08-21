@@ -42,6 +42,10 @@ export default async (req: Request, res: Response) => {
   };
 
   const callbackToken = process.env.BLINGERP_CALLBACK_TOKEN || appData.callback_token;
+  /* Sem token configurado o callback segue aceito (fail-open), mas a requisição
+  é anônima: só os identificadores do corpo são usados e todo dado é rebuscado
+  autenticado no Bling. Campos copiados do corpo (rastreio) exigem o token. */
+  const isTokenValidated = Boolean(callbackToken);
   if (callbackToken) {
     if (req.query.token !== callbackToken) {
       res.sendStatus(401);
@@ -50,6 +54,7 @@ export default async (req: Request, res: Response) => {
   } else if (!hasWarnedNoToken) {
     hasWarnedNoToken = true;
     logger.warn('Bling callback accepted without token validation,'
+      + ' tracking codes from the callback body will NOT be imported,'
       + ' set `BLINGERP_CALLBACK_TOKEN` and append `?token=` to the callback URL on Bling');
   }
   if (!(await checkEnableApi(appData.client_id))) {
@@ -85,17 +90,19 @@ export default async (req: Request, res: Response) => {
       if (numero) {
         logger.info(`> Bling callback order ${numero}`);
         /*
-        O corpo do callback é a única fonte do rastreio completo: o
-        `GET /pedidos/vendas/{id}` nunca devolve `urlRastreamento`, então
+        O corpo do callback é a única fonte do rastreio completo — o
+        `GET /pedidos/vendas/{id}` nunca devolve `urlRastreamento` —, então
         `transporte`/`codigosRastreamento` seguem na entrada da fila para
-        serem fundidos no pedido relido da API.
+        serem fundidos no pedido relido da API. SÓ com o token validado:
+        numa requisição anônima esses campos gravariam o link de rastreio
+        que o cliente clica, forjável com o número (sequencial) do pedido.
         */
         // eslint-disable-next-line no-await-in-loop
         await runQueueEntry({
           action: 'importation',
           queue: 'order_numbers',
           nextId: String(numero),
-          _callbackOrder: callbackOrder,
+          _callbackOrder: isTokenValidated ? callbackOrder : undefined,
           isNotQueued: true,
           isHiddenQueue: true,
         }, importOrder);
