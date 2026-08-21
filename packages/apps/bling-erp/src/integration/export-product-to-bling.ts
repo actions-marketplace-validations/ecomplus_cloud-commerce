@@ -6,7 +6,7 @@ import api from '@cloudcommerce/api';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
 import parseProduct from './parsers/product-to-bling';
-import parseStockFromDeposits from './helpers/parse-stock-from-deposits';
+import parseStockFromDeposits, { hasDepositBalance } from './helpers/parse-stock-from-deposits';
 
 const getBlingStockBalances = (bling: Bling, blingProductId: string | number) => {
   const params = new URLSearchParams({ 'idsProdutos[]': String(blingProductId) });
@@ -183,16 +183,28 @@ const exportProductToBling = async (
   }
 
   const stockBalances = await getBlingStockBalances(bling, blingProductId);
-  const estoqueId = blingDeposit || stockBalances?.depositos?.[0]?.id;
-  if (!estoqueId) {
-    return response;
+  const blingDeposits: Array<Record<string, any>> = stockBalances?.depositos || [];
+  const depositsWithBalance = blingDeposits.filter(hasDepositBalance);
+  if (!blingDeposit && depositsWithBalance.length > 1) {
+    /* Sem `bling_deposit` configurado a comparação soma os depósitos com saldo,
+    mas a escrita iria só para um: a soma nunca converge e o depósito seria
+    sobrescrito com o total da loja. A guarda só dispara com 2+ depósitos COM
+    saldo (um segundo depósito vazio, de devolução/avaria, não trava o estoque
+    em 0 para sempre), e devolve `isConfigError` para a falha aparecer nos
+    `logs` do painel em vez de um `logger.warn` que o lojista nunca vê. */
+    const error: any = new Error(
+      `O produto ${blingProductId} tem ${depositsWithBalance.length} depósitos`
+      + ' com saldo no Bling e nenhum `bling_deposit` configurado:'
+      + ' estoque NÃO exportado, configure o depósito no app',
+    );
+    error.isConfigError = true;
+    return error;
   }
-  if (!blingDeposit && stockBalances && stockBalances.depositos?.length > 1) {
-    /* Sem `bling_deposit` configurado a comparação soma todos os depósitos, mas
-    a escrita iria só para o primeiro: a soma nunca converge e o depósito seria
-    sobrescrito com o total da loja. Melhor não exportar estoque nesse caso. */
-    logger.warn(`Multiple Bling deposits for ${blingProductId} and none configured,`
-      + ' skipping stock exportation');
+  /* Sem depósito configurado a escrita vai para o (único) depósito com saldo,
+  para a base comparada e a base escrita convergirem; produto zerado em todos
+  cai no primeiro depósito devolvido. */
+  const estoqueId = blingDeposit || depositsWithBalance[0]?.id || blingDeposits[0]?.id;
+  if (!estoqueId) {
     return response;
   }
 
