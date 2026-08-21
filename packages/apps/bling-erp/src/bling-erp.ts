@@ -17,8 +17,12 @@ export const blingerp = {
     'blingErp',
     handleApiEvent,
     /* 60s (padrão) estoura em importação de produto com muitas imagens,
-    que são baixadas e reenviadas sequencialmente à Storage API */
-    { memory: '512MB', timeoutSeconds: 300 },
+    que são baixadas e reenviadas sequencialmente à Storage API.
+    O `eventMaxAgeMs` sobe junto: com a idade máxima padrão (60s) a reentrega
+    do `failurePolicy` após um timeout de 300s seria sempre descartada, e com
+    `maxInstances: 1` todo evento publicado durante uma execução longa
+    envelheceria na fila e morreria em "Dropping event". */
+    { memory: '512MB', timeoutSeconds: 300, eventMaxAgeMs: 1000 * 60 * 10 },
   ),
 
   callback: functions
@@ -26,7 +30,10 @@ export const blingerp = {
     .runWith({
       ...httpsFunctionOptions,
       memory: '512MB',
-      timeoutSeconds: 120,
+      /* O client Bling serializa a ~1 req/s e cada item do callback custa
+      3 a 7 chamadas: com 120s um lote de ~20 itens estourava o timeout e
+      perdia o resto (entradas `isNotQueued`, sem retry) */
+      timeoutSeconds: 300,
     })
     .https.onRequest((req, res) => {
       return createExecContext(() => handleBlingCallback(req, res));
