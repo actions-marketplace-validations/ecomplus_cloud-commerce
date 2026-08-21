@@ -5,7 +5,6 @@ import { createBlingClient } from '../bling-auth/client';
 import parseOrder from './parsers/order-from-bling';
 import parseStatusFromBling from './parsers/status-from-bling';
 import shouldAdvanceFulfillment from './helpers/should-advance-fulfillment';
-import skipEventHeaders from './helpers/skip-event-headers';
 
 const getLastStatus = (records: Array<Record<string, any>> | undefined) => {
   let statusRecord: Record<string, any> | undefined;
@@ -43,6 +42,8 @@ const importOrderFromBling = async (
   O rastreio completo só vem no corpo do callback do Bling — o
   `GET /pedidos/vendas/{id}` nunca devolve `urlRastreamento` —, então os
   campos de transporte do callback são fundidos no pedido relido da API.
+  `_callbackOrder` só chega aqui de requisição com o token validado
+  (`bling-callback.ts`): corpo anônimo nunca é gravado sem confirmação.
   */
   const callbackOrder = queueEntry._callbackOrder as Record<string, any> | undefined;
   if (callbackOrder) {
@@ -77,7 +78,7 @@ const importOrderFromBling = async (
   const partialOrder = parseOrder(blingOrder, order.shipping_lines);
   const promises: Array<Promise<any>> = [];
   if (partialOrder && Object.keys(partialOrder).length) {
-    promises.push(api.patch(`orders/${order._id}`, partialOrder, { headers: skipEventHeaders }));
+    promises.push(api.patch(`orders/${order._id}`, partialOrder));
   }
 
   const { financialStatus, fulfillmentStatus } = parseStatusFromBling(situacao, appData);
@@ -101,7 +102,7 @@ const importOrderFromBling = async (
       promises.push(api.post(`orders/${order._id}/${subresource}`, {
         ...statusBody,
         status: newStatus,
-      } as any, { headers: skipEventHeaders }));
+      } as any));
     });
 
   const [firstResult] = await Promise.all(promises);

@@ -4,7 +4,6 @@ import api from '@cloudcommerce/api';
 import ecomUtils from '@ecomplus/utils';
 import { logger } from '@cloudcommerce/firebase/lib/config';
 import { createBlingClient } from '../bling-auth/client';
-import skipEventHeaders from './helpers/skip-event-headers';
 import parseProduct from './parsers/product-from-bling';
 import importCategory from './import-category-from-bling';
 import parseStockFromDeposits from './helpers/parse-stock-from-deposits';
@@ -77,7 +76,7 @@ const createUpdateProduct = async (
     endpoint += '/quantity';
     logger.info(endpoint, { quantity, sku });
     // @ts-ignore
-    return api.put(endpoint, quantity, { headers: skipEventHeaders });
+    return api.put(endpoint, quantity);
   }
 
   if (!product && blingProduct.codigoPai) {
@@ -105,10 +104,10 @@ const createUpdateProduct = async (
   }
   if (product) {
     logger.info(`PATCH products/${product._id}`, { bodyProduct });
-    return api.patch(`products/${product._id}`, bodyProduct, { headers: skipEventHeaders });
+    return api.patch(`products/${product._id}`, bodyProduct);
   }
   logger.info('POST products', { bodyProduct });
-  return api.post('products', bodyProduct, { headers: skipEventHeaders });
+  return api.post('products', bodyProduct);
 };
 
 const getBlingProduct = async (

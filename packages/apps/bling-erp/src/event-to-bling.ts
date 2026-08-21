@@ -1,6 +1,7 @@
 import type { ApiEventHandler } from '@cloudcommerce/firebase/lib/helpers/pubsub';
 import type { IntegrationHandler } from './integration/integration-handler';
 import { logger } from '@cloudcommerce/firebase/lib/config';
+import getEnv from '@cloudcommerce/firebase/lib/env';
 import checkEnableApi from './bling-auth/check-enable-api';
 import exportProduct from './integration/export-product-to-bling';
 import exportOrder from './integration/export-order-to-bling';
@@ -32,6 +33,20 @@ const handleApiEvent: ApiEventHandler = async ({
   const resourceId = apiEvent.resource_id;
   logger.info(`>> ${resourceId} - Action: ${apiEvent.action}`);
   const key = `${evName}_${resourceId}`;
+  /*
+  O eco importação -> evento -> exportação de volta ao Bling é cortado AQUI, no
+  consumidor, ignorando eventos de autoria do próprio app: suprimir na origem
+  (`X-Event-Flag: _skip`) esconderia o evento da loja inteira — e-mails de
+  status, Melhor Envio, fidelidade, afiliados, webhooks etc. também assinam
+  `orders-anyStatusSet`/`products-*Set` e deixariam de ser notificados.
+  */
+  if (
+    apiEvent.authentication_id
+    && apiEvent.authentication_id === getEnv().apiAuth.authenticationId
+  ) {
+    logger.info(`>> ${key} - Skipped self-caused event`);
+    return null;
+  }
   if (
     evName === 'applications-dataSet'
     && !apiEvent.modified_fields.includes('data')
