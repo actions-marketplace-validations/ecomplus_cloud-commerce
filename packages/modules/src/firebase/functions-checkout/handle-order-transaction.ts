@@ -14,21 +14,32 @@ const newOrder = async (orderBody: OrderSet) => {
     const orderId = (await api.post('orders', orderBody)).data._id;
     return new Promise<{ order: Orders | null, err?: any }>((resolve) => {
       let attempts = 0;
+      let lastOrderRead: Orders | null = null;
       const readFullOrder = async () => {
         attempts += 1;
         try {
           const { data: order } = await api.get(`orders/${orderId}`, {
             headers: { 'x-primary-db': 'true' },
           });
+          lastOrderRead = order;
           // The order number is set asynchronously and may not be ready yet,
           // without it the storefront can't reference the order for the customer
           if (!order.number && attempts <= 3) {
             setTimeout(readFullOrder, 400 * attempts);
             return;
           }
+          if (!order.number) {
+            logger.warn(`Order ${orderId} number still unset after ${attempts} reads`);
+          }
           resolve({ order });
         } catch (err: any) {
           logger.error(err);
+          // The order does exist, don't fail the checkout over a transient
+          // read error when a previous read already succeeded
+          if (lastOrderRead) {
+            resolve({ order: lastOrderRead });
+            return;
+          }
           resolve({ order: null, err });
         }
       };

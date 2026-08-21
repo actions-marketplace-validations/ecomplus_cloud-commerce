@@ -37,11 +37,17 @@ const fetchOrderFallback = async (orderId: string) => {
   try {
     const { data: order } = await api.get(`orders/${orderId as Orders['_id']}`, {
       fields: ['number', 'amount', 'extra_discount'] as const,
+      headers: { 'x-primary-db': 'true' },
+      // Keep this read within the SSR function time budget, it must not
+      // delay or starve the other analytics providers in the same batch
+      timeout: 3000,
+      maxRetries: 0,
     });
     return order;
   } catch (err: any) {
-    logger.warn(`Failed reading order ${orderId} for Awin reference`, {
-      status: err.statusCode || err.response?.status,
+    logger.warn(`Failed reading order ${orderId} for Awin conversion`, {
+      err,
+      status: err.statusCode,
     });
     return null;
   }
@@ -62,7 +68,6 @@ const sendToAwin = async ({
   const awinOrders: Array<Record<string, any>> = [];
   for (let i = 0; i < purchaseEvents.length; i++) {
     const { params } = purchaseEvents[i];
-    // eslint-disable-next-line no-continue
     if (!params?.transaction_id) continue;
     let orderNumber = params.order_number;
     let voucher = params.coupon;
@@ -70,11 +75,14 @@ const sendToAwin = async ({
     let grossValue = Number(params.value) || 0;
     let shipping = Number(params.shipping) || 0;
     let tax = Number(params.tax) || 0;
-    if (!orderNumber) {
+    // The client event may miss the order number (external payment redirects)
+    // and/or the exact amounts (no order body on the confirmation route, value
+    // falls back to cart subtotal), read the order whenever any is absent
+    if (!orderNumber || params.shipping === undefined) {
       // eslint-disable-next-line no-await-in-loop
       const order = await fetchOrderFallback(`${params.transaction_id}`);
       if (order) {
-        orderNumber = order.number;
+        if (order.number) orderNumber = order.number;
         if (order.amount) {
           grossValue = Number(order.amount.total) || grossValue;
           shipping = Number(order.amount.freight) || 0;
@@ -82,6 +90,11 @@ const sendToAwin = async ({
         }
         if (!voucher) voucher = order.extra_discount?.discount_coupon;
       }
+    }
+    if (!orderNumber) {
+      logger.warn(
+        `Awin conversion falling back to internal ID for order ${params.transaction_id}`,
+      );
     }
     const netAmount = Math.max(
       Math.round((grossValue - shipping - tax) * 100) / 100,
