@@ -140,6 +140,7 @@ const handleApiEvent: ApiEventHandler = async ({
               key,
               app,
               isNotQueued: !isQueued,
+              isStockOnlyEvent: evName === 'products-quantitySet',
             };
             return handler(
               apiDoc,

@@ -93,6 +93,18 @@ const exportProductToBling = async (
     isDetailLoaded = true;
   }
 
+  /*
+  Evento de quantidade (`products-quantitySet`) só movimenta estoque: o
+  `PUT /produtos` completo sobrescreveria no Bling edições feitas por lá (nome,
+  descrição, preço, NCM...) a cada movimentação — inclusive no eco de um
+  callback de estoque do próprio Bling, que dispara esse mesmo evento.
+  */
+  const isStockOnlyEvent = Boolean(queueEntry.isStockOnlyEvent);
+  if (isStockOnlyEvent && !originalBlingProduct) {
+    logger.info(`${productId} not on Bling, skipping creation on quantity event`);
+    return null;
+  }
+
   let response: any = null;
   let bodyBlingProduct: Record<string, any> | undefined;
   if (canCreateNew || appData.export_quantity || !blingStore) {
@@ -108,12 +120,16 @@ const exportProductToBling = async (
         .then(({ data }) => data.data)
         .catch(() => originalBlingProduct);
     }
+    /* Montado mesmo sem o `PUT`: o lançamento de estoque por variação abaixo
+    depende dele para casar variação da loja -> id do Bling. */
     bodyBlingProduct = parseProduct(product, originalBlingProduct, appData);
-    const endpoint = `/produtos${originalBlingProduct ? `/${blingProductId}` : ''}`;
-    logger.info(`[${originalBlingProduct ? 'put' : 'post'}]: ${endpoint}`, { bodyBlingProduct });
-    response = originalBlingProduct
-      ? await bling.put(endpoint, bodyBlingProduct)
-      : await bling.post(endpoint, bodyBlingProduct);
+    if (!isStockOnlyEvent) {
+      const endpoint = `/produtos${originalBlingProduct ? `/${blingProductId}` : ''}`;
+      logger.info(`[${originalBlingProduct ? 'put' : 'post'}]: ${endpoint}`, { bodyBlingProduct });
+      response = originalBlingProduct
+        ? await bling.put(endpoint, bodyBlingProduct)
+        : await bling.post(endpoint, bodyBlingProduct);
+    }
   }
 
   const responseData = response?.data?.data;
@@ -153,7 +169,7 @@ const exportProductToBling = async (
   applying the parent price to all of them, so variations priced differently on
   the store must be updated one by one.
   */
-  if (bodyBlingProduct?.variacoes?.length) {
+  if (!isStockOnlyEvent && bodyBlingProduct?.variacoes?.length) {
     const divergentVariations = bodyBlingProduct.variacoes.filter(({ preco }) => {
       return preco && preco !== bodyBlingProduct!.preco;
     });
