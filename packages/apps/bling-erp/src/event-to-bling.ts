@@ -1,8 +1,8 @@
 import type { ApiEventHandler } from '@cloudcommerce/firebase/lib/helpers/pubsub';
 import type { IntegrationHandler } from './integration/integration-handler';
 import { logger } from '@cloudcommerce/firebase/lib/config';
-import getEnv from '@cloudcommerce/firebase/lib/env';
 import checkEnableApi from './bling-auth/check-enable-api';
+import parseEventConfig from './integration/helpers/parse-event-config';
 import exportProduct from './integration/export-product-to-bling';
 import exportOrder from './integration/export-order-to-bling';
 import importProduct from './integration/import-product-from-bling';
@@ -33,20 +33,6 @@ const handleApiEvent: ApiEventHandler = async ({
   const resourceId = apiEvent.resource_id;
   logger.info(`>> ${resourceId} - Action: ${apiEvent.action}`);
   const key = `${evName}_${resourceId}`;
-  /*
-  O eco importação -> evento -> exportação de volta ao Bling é cortado AQUI, no
-  consumidor, ignorando eventos de autoria do próprio app: suprimir na origem
-  (`X-Event-Flag: _skip`) esconderia o evento da loja inteira — e-mails de
-  status, Melhor Envio, fidelidade, afiliados, webhooks etc. também assinam
-  `orders-anyStatusSet`/`products-*Set` e deixariam de ser notificados.
-  */
-  if (
-    apiEvent.authentication_id
-    && apiEvent.authentication_id === getEnv().apiAuth.authenticationId
-  ) {
-    logger.info(`>> ${key} - Skipped self-caused event`);
-    return null;
-  }
   if (
     evName === 'applications-dataSet'
     && !apiEvent.modified_fields.includes('data')
@@ -67,47 +53,16 @@ const handleApiEvent: ApiEventHandler = async ({
     return null;
   }
 
-  let integrationConfig: Record<string, any> | undefined;
-  /*
-  `canCreateNew` is a tri-state, `undefined` means the resource can be created
-  on Bling only when it was not exported before.
-  */
-  let canCreateNew: boolean | undefined = false;
-  let isQueued = false;
-  if (evName === 'applications-dataSet') {
-    integrationConfig = appData;
-    canCreateNew = true;
-    isQueued = true;
-  } else if (evName === 'orders-anyStatusSet') {
-    canCreateNew = appData.new_orders ? undefined : false;
-    integrationConfig = {
-      _exportation: {
-        order_ids: [resourceId],
-      },
-    };
-  } else {
-    if (evName === 'products-new') {
-      if (!appData.new_products) {
-        return null;
-      }
-      canCreateNew = true;
-    } else if (evName === 'products-priceSet') {
-      if (!appData.export_price) {
-        return null;
-      }
-    } else if (!appData.export_quantity) {
-      return null;
-    }
-    integrationConfig = {
-      _exportation: {
-        product_ids: [resourceId],
-      },
-    };
-  }
-
-  if (!integrationConfig) {
+  const eventConfig = parseEventConfig(evName, appData, resourceId);
+  if (!eventConfig) {
     return null;
   }
+  const {
+    integrationConfig,
+    canCreateNew,
+    isQueued,
+    isStockOnlyEvent,
+  } = eventConfig;
   if (!(await checkEnableApi(appData.client_id))) {
     logger.warn('Bling API is not enabled, check the app authorization');
     return null;
@@ -140,7 +95,7 @@ const handleApiEvent: ApiEventHandler = async ({
               key,
               app,
               isNotQueued: !isQueued,
-              isStockOnlyEvent: evName === 'products-quantitySet',
+              isStockOnlyEvent,
             };
             return handler(
               apiDoc,
