@@ -136,9 +136,13 @@ const exportProductToBling = async (
   if (responseData?.id) {
     blingProductId = String(responseData.id);
   }
+  let isMetafieldsChanged = false;
   if (blingProductId) {
     if (metafieldId) {
-      metafieldId.value = String(blingProductId);
+      if (metafieldId.value !== String(blingProductId)) {
+        metafieldId.value = String(blingProductId);
+        isMetafieldsChanged = true;
+      }
     } else {
       metafields.push({
         _id: ecomUtils.randomObjectId(),
@@ -146,6 +150,7 @@ const exportProductToBling = async (
         field: 'bling:id',
         value: String(blingProductId),
       });
+      isMetafieldsChanged = true;
     }
   }
   if (blingProductCode && !metafieldCodigo) {
@@ -155,8 +160,15 @@ const exportProductToBling = async (
       field: 'bling:codigo',
       value: String(blingProductCode),
     });
+    isMetafieldsChanged = true;
   }
-  if (metafields.length) {
+  /*
+  O `PATCH` substitui o array inteiro a partir do documento do evento: gravar
+  sem mudança nenhuma custa uma escrita na Store API por movimentação de estoque
+  (o eco de callback passa por aqui) e ainda pode descartar metafield que outro
+  app escreveu depois do snapshot. Em regime estável não há o que persistir.
+  */
+  if (isMetafieldsChanged) {
     await api.patch(`products/${product._id}`, { metafields } as any).catch(logger.error);
   }
 
