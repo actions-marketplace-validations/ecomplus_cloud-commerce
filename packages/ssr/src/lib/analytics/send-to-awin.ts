@@ -20,10 +20,14 @@ const awinAxios = AWIN_ADVERTISER_ID && AWIN_API_KEY
   })
   : null;
 
-// Expected AwinChannelCookie values — Awin docs mandate 'aw' as the fallback
-const validChannels = new Set([
-  'aw', 'ppcgeneric', 'ppcbrand', 'display', 'social', 'Other', 'Organic', 'direct',
-]);
+// Awin doesn't enumerate accepted channels, the value is free-form and must
+// match the `ch` the fallback pixel sends for the same order reference,
+// 'aw' is the mandated fallback
+// https://help.awin.com/developers/docs/channel-parameter
+const parseChannel = (channel: unknown) => {
+  if (typeof channel !== 'string') return 'aw';
+  return channel.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'aw';
+};
 
 // Awin forbids the pipe character in id/name/sku/category basket fields
 const stripPipes = (value: unknown) => (
@@ -102,7 +106,7 @@ const sendToAwin = async ({
     );
     const awinOrder: Record<string, any> = {
       orderReference: String(orderNumber || params.transaction_id),
-      channel: validChannels.has(channel) ? channel : 'aw',
+      channel: parseChannel(channel),
       awc,
       voucher,
       amount: netAmount,
