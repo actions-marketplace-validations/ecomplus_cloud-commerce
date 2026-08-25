@@ -5,6 +5,7 @@ import { createBlingClient } from '../bling-auth/client';
 import parseOrder from './parsers/order-from-bling';
 import parseStatusFromBling from './parsers/status-from-bling';
 import shouldAdvanceFulfillment from './helpers/should-advance-fulfillment';
+import shouldApplyFinancialStatus from './helpers/should-apply-financial-status';
 
 const getLastStatus = (records: Array<Record<string, any>> | undefined) => {
   let statusRecord: Record<string, any> | undefined;
@@ -97,6 +98,15 @@ const importOrderFromBling = async (
         // Conta Bling padrão colapsa "enviado"/"entregue" em "Atendido", que
         // volta como invoice_issued; não deixamos o pedido regredir de estado.
         logger.info(`Skipping fulfillment regression ${currentStatus} -> ${newStatus}`);
+        return;
+      }
+      if (
+        subresource === 'payments_history'
+        && !shouldApplyFinancialStatus(currentStatus, newStatus)
+      ) {
+        // "Cancelado" é o alvo de estorno e cancelamento; na volta vira sempre
+        // `voided` e apagaria o `refunded` que o gateway acabou de gravar.
+        logger.info(`Skipping financial downgrade ${currentStatus} -> ${newStatus}`);
         return;
       }
       promises.push(api.post(`orders/${order._id}/${subresource}`, {
